@@ -17,7 +17,8 @@ Pull requests are the best way to propose changes to the codebase.
 1. Fork the repo and create your branch from `main`.
 2. If you've changed something, update the documentation.
 3. Make sure your code lints with `ruff` (run `python3 -m ruff check .`).
-4. Test your contribution.
+4. Run `python3 -m pytest -q`.
+5. Test your contribution.
 5. Issue that pull request!
 
 ## Development Environment
@@ -32,7 +33,9 @@ This integration is based on the [integration_blueprint template](https://github
 
 ### SDK Dependency
 
-This integration uses a **patched `github-copilot-sdk 0.1.22+ha` wheel** bundled in `wheels/` for Home Assistant OS compatibility. The wheel is installed automatically from `manifest.json` — no manual steps are needed. If you need to rebuild it, run the `.github/workflows/build-sdk.yml` workflow (see `wheels/README.md` for details).
+This integration uses the official `github-copilot-sdk` universal Python wheel.
+The SDK remains in Home Assistant Core while the native runtime can be isolated
+in the bridge add-on.
 
 ### Running the Linter
 

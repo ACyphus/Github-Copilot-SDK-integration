@@ -1,384 +1,128 @@
 # GitHub Copilot Home Assistant Integration
 
-[![GitHub Release][releases-shield]][releases]
-[![GitHub Activity][commits-shield]][commits]
-[![License][license-shield]](LICENSE)
-[![hacs][hacsbadge]][hacs]
+A Home Assistant custom integration that uses the official GitHub Copilot SDK
+as a conversation agent.
 
-_Integration to bring GitHub Copilot AI capabilities to Home Assistant using the GitHub Copilot SDK._
+The current foundation provides:
 
-**This integration provides a conversation agent powered by the GitHub Copilot SDK and Copilot CLI, enabling voice assistants and AI-powered tasks similar to OpenAI, Claude, and Gemini integrations.**
+- A Home Assistant conversation entity.
+- Multi-turn Copilot sessions.
+- Dynamic model discovery after setup.
+- A local SDK runtime option.
+- An authenticated Home Assistant add-on for remote runtime isolation.
+- Default-deny runtime tool permissions.
 
-## Features
+Native Home Assistant LLM tools, AI Task entities, and camera attachments are
+planned follow-up work. See [`docs/architecture.md`](docs/architecture.md).
 
-- 🤖 **Conversation Agent** - Use GitHub Copilot as an AI conversation agent
-- 🎤 **Voice Assistant Support** - Works with Home Assistant's voice pipeline
-- 🔧 **Configurable Models** - Support for GPT-4o, GPT-4o-mini, GPT-4, GPT-4 Turbo, GPT-4.1, GPT-3.5 Turbo, GPT-5, o3-mini, o1, o1-mini, Claude 3.5 Sonnet, Claude Sonnet 4.5, Claude Haiku 4.5, and Claude Opus 4.6
-- 💬 **Context Preservation** - Maintains conversation history within sessions via the SDK
-- 🐳 **Add-on Support** - Run the Copilot CLI as a Home Assistant add-on instead of installing it locally
+## Requirements
+
+- Home Assistant 2026.8.2 or later.
+- An active GitHub Copilot subscription.
+- A supported GitHub OAuth user token or fine-grained personal access token.
 
 ## Installation
 
-### HACS (Recommended)
+### Custom integration
 
-1. Open HACS in Home Assistant
-2. Go to "Integrations"
-3. Click the "+" button
-4. Search for "GitHub Copilot"
-5. Click "Install"
-6. Restart Home Assistant
+Install the integration through HACS as a custom repository, or copy
+`custom_components/github_copilot` into the Home Assistant configuration
+directory.
 
-### Manual Installation
+Restart Home Assistant, then add **GitHub Copilot** from
+**Settings > Devices & services**.
 
-1. Copy the `custom_components/github_copilot` directory to your Home Assistant `custom_components` directory
-2. Restart Home Assistant
+### Runtime options
 
-## GitHub Copilot Bridge Add-on (Recommended for Home Assistant OS)
+#### Bundled local runtime
 
-Installing the Copilot CLI inside the Home Assistant Core container can be difficult on Home Assistant OS. The included **GitHub Copilot Bridge** add-on solves this by running the CLI in a dedicated container that the integration connects to over the internal network.
+Leave the bridge URL empty and provide a supported GitHub token. The official
+Python SDK downloads and manages its compatible runtime.
 
-**Current Version**: v3.11.0
+This mode is convenient for development. The bridge add-on is preferred on Home
+Assistant OS because it isolates the native runtime from Home Assistant Core.
 
-**Key Features**:
-- 🐳 **Containerized Copilot CLI server** running on port 8000 (internal network only)
-- 🔄 **Automatic retry mechanism** with up to 5 restart attempts on failures
-- 🔐 **Token-based authentication** via environment variables (no interactive prompts)
-- 🏗️ **Multi-architecture support** for amd64 and aarch64 systems
-- ✅ **SHA256 checksum verification** for CLI binary integrity
-- 🚀 **Auto-start on boot** with configurable GitHub token
-- 🛡️ **Hardened authentication** with timeout protection to prevent startup blocking
-- 🎯 **Feature detection** for CLI flags to support multiple Copilot CLI versions
-- 🧰 **Custom MCP support** via add-on options (inline JSON or config file path)
+#### GitHub Copilot Bridge add-on
 
-### Installing the Add-on
+1. Add this repository to the Home Assistant add-on store.
+2. Install **GitHub Copilot Bridge**.
+3. Configure two different secrets:
 
-1. In Home Assistant, go to **Settings** → **Add-ons** → **Add-on Store**
-2. Click the **⋮** menu (top-right) and choose **Repositories**
-3. Add this repository URL: `https://github.com/tserra30/Github-Copilot-SDK-integration`
-4. Find **GitHub Copilot Bridge** in the store and click **Install**
-5. Go to the add-on's **Configuration** tab and set your GitHub token:
    ```yaml
-   github_token: "ghp_yourTokenHere"
-   mcp_config: ""
+   github_token: "github_pat_..."
+   connection_token: "a-long-random-bridge-secret"
    ```
-6. Start the add-on
-7. Check the **Log** tab to confirm it started successfully
 
-When `mcp_config` is provided, the add-on passes it to Copilot CLI via
-`--additional-mcp-config` so SDK sessions created through the bridge can use MCP tools.
+4. Start the add-on.
+5. Configure the integration with:
+   - Bridge URL: `<add-on-hostname>:8000`
+   - Bridge Connection Token: the same `connection_token`
 
-`mcp_config` accepts:
-- A JSON object string containing `mcpServers`
-- A file path to a JSON config (for example `/config/copilot/mcp.json`)
+The GitHub token authenticates the add-on to GitHub. The connection token
+authenticates Home Assistant Core to the add-on's JSON-RPC endpoint.
 
-### MCP Configuration Examples (Bridge Add-on)
+The endpoint is available only on the Supervisor network by default.
 
-**ha-mcp (remote server)**
+## Security model
 
-```yaml
-github_token: "ghp_yourTokenHere"
-mcp_config: '{"mcpServers":{"ha":{"transport":"streamable-http","url":"http://homeassistant.local:8080/mcp","headers":{"Authorization":"Bearer YOUR_HA_LONG_LIVED_TOKEN"}}}}'
+The SDK client runs in `empty` mode. Conversation sessions start with:
+
+- No built-in shell or filesystem tools.
+- No built-in MCP servers.
+- No skills or session store.
+- A default-deny permission handler.
+
+Future Home Assistant tools will be registered explicitly from the native Assist
+LLM API. Arbitrary MCP configuration is intentionally not supported by the
+bridge.
+
+See [`docs/threat-model.md`](docs/threat-model.md).
+
+## Development
+
+Create an environment with Python 3.14:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
 ```
 
-**Custom local MCP server**
+Run local validation:
 
-```yaml
-github_token: "ghp_yourTokenHere"
-mcp_config: '{"mcpServers":{"mytool":{"type":"local","command":"/usr/local/bin/my-mcp-server","args":[],"tools":["*"]}}}'
+```bash
+.venv/bin/python -m pytest -q
+.venv/bin/python -m ruff check .
+.venv/bin/python -m ruff format . --check
+.venv/bin/python scripts/check_dependencies.py
+bash -n addon/run.sh
 ```
 
-**Multiple MCP servers**
+Run the opt-in live SDK boundary test with locally stored Copilot credentials:
 
-```yaml
-github_token: "ghp_yourTokenHere"
-mcp_config: '{"mcpServers":{"ha":{"transport":"streamable-http","url":"http://homeassistant.local:8080/mcp"},"remote-tool":{"transport":"streamable-http","url":"http://remote-mcp-server:3000"}}}'
+```bash
+.venv/bin/python scripts/sdk_boundary_smoke.py
 ```
 
-**Use config from file**
+Or against a running authenticated bridge:
 
-```yaml
-github_token: "ghp_yourTokenHere"
-mcp_config: "/config/copilot/mcp.json"
+```bash
+COPILOT_RUNTIME_URL=bridge-hostname:8000 \
+COPILOT_CONNECTION_TOKEN='your-bridge-secret' \
+.venv/bin/python scripts/sdk_boundary_smoke.py
 ```
 
-### Finding the Add-on Hostname
-
-The integration needs to know the URL of the running add-on. Within Home Assistant's internal network the add-on is reachable via its hostname, which you can find in the add-on **Info** tab (shown next to "Hostname"). The URL will be:
-
-```
-http://<hostname>:8000
-```
-
-For example: `http://a1b2c3d4-github-copilot-bridge:8000`
-
-> **Note**: Home Assistant generates the hostname from the add-on slug by replacing all underscores (`_`) with hyphens (`-`). Always use hyphens in the hostname — using the raw slug with underscores will cause DNS resolution to fail.
-
-## Configuration
-
-### Setup via UI
-
-1. Go to **Settings** → **Devices & Services**
-2. Click **Add Integration**
-3. Search for **GitHub Copilot**
-4. Fill in the configuration:
-   - **GitHub Token** – Your GitHub personal access token with Copilot permissions (optional when using Bridge add-on)
-   - **Model** – Select from GPT-4o (default), GPT-4o-mini, GPT-4, GPT-4 Turbo, GPT-4.1, GPT-3.5 Turbo, GPT-5, o3-mini, o1, o1-mini, Claude 3.5 Sonnet, Claude Sonnet 4.5, Claude Haiku 4.5, or Claude Opus 4.6
-   - **Copilot CLI URL (add-on)** *(optional)* – URL of the GitHub Copilot Bridge add-on (e.g. `http://a1b2c3d4-github-copilot-bridge:8000`). Leave empty to use a locally installed Copilot CLI.
-
-After setup you can adjust additional settings at any time via **Settings** → **Devices & Services** → **GitHub Copilot** → **Configure**:
-   - **Response timeout** *(default: 120 s)* – Maximum seconds to wait for a Copilot response. Increase this for reasoning-heavy models such as o1 or o3-mini, or for high-latency connections (range: 10–600 s).
-
-> **Tip for Home Assistant OS users**: Install the GitHub Copilot Bridge add-on (see above) and enter its URL in the "Copilot CLI URL" field. This is the easiest way to get the integration working without manually installing the CLI in the Core container.
-
-> **Note**: When using the Bridge add-on (with CLI URL), you can optionally provide the GitHub Token in the integration setup for reference, but the integration will not pass it to the SDK since the remote server manages its own authentication. The token configured in the add-on itself is what matters for authentication.
-
-> **SDK requirement (all modes)**: The `github-copilot-sdk` package is required whether you connect to a locally installed Copilot CLI or to the Bridge add-on via "Copilot CLI URL" — it is the Python client library the integration uses in both cases. On standard Linux systems (glibc ≥ 2.28), Home Assistant installs it automatically. On Home Assistant OS (glibc < 2.28), the default `0.1.32` wheel is incompatible — see the [SDK Installation](#sdk-installation) section for a workaround. When you leave "Copilot CLI URL" empty (local mode), you **must also** have the Copilot CLI binary installed and authenticated on the same host. The Bridge add-on already includes and manages its own CLI binary.
-
-### Getting a GitHub Token
-
-To use this integration, you need a GitHub personal access token that can authenticate the Copilot SDK:
-1. Ensure you have an active GitHub Copilot subscription
-2. Generate a PAT token from your [GitHub developer settings](https://github.com/settings/tokens)
-3. Add the necessary permissions (e.g., Copilot requests)
-4. Keep the token secure — never share it publicly
-
-> **Note — token and authentication when using the Bridge add-on**
-> When using the Bridge add-on (`cli_url` set), the GitHub token only needs to be configured in the **add-on** (as `GH_TOKEN`). The integration does **not** store or pass a token to the SDK in remote mode — the bridge server handles authentication entirely on its own. If you rotate or revoke the token, update it only in the add-on configuration.
-
-## Usage
-
-### As a Conversation Agent
-
-Once configured, you can:
-
-1. Select GitHub Copilot as a conversation agent in voice assistants
-2. Use it in automations via the `conversation.process` service
-3. Chat with it through the Home Assistant UI
-
-### Example Automation
-
-```yaml
-automation:
-  - alias: "Morning briefing with Copilot"
-    trigger:
-      - platform: time
-        at: "07:00:00"
-    action:
-      - service: conversation.process
-        data:
-          text: "Good morning! What should I know today?"
-          agent_id: conversation.github_copilot
-```
+The live test verifies authentication, model listing, a client-side custom-tool
+round trip, built-in tool exclusion, image input, and usage events.
 
 ## Documentation
 
-For detailed setup and usage guidance, use this README. For contributing and development details, see [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## Troubleshooting
-
-### Bridge add-on MCP configuration
-
-- **`Invalid mcp_config` at startup**: Ensure `mcp_config` is valid JSON containing `mcpServers`, or a valid file path.
-- **`file does not exist` error**: If you pass a file path, verify the file exists in the add-on container (for example under `/config`).
-- **MCP tools not loaded**: Check add-on logs to confirm your Copilot CLI build supports `--additional-mcp-config`.
-
-### SDK Installation
-
-This integration uses a **patched version** of `github-copilot-sdk` (version `0.1.22+ha`) that is automatically installed from this repository's `wheels/` directory. This patched wheel:
-
-- ✅ Is a universal `py3-none-any` wheel compatible with **all platforms** including Home Assistant OS
-- ✅ Supports **protocol v3** (required for Copilot CLI v1.0.13)
-- ✅ Maintains **backward compatibility** with protocol v2
-- ✅ Works on systems with **any glibc version** (no manylinux requirements)
-
-**Why a patched wheel?**
-- Official SDK versions 0.1.23+ only ship `manylinux_2_28` wheels requiring glibc ≥ 2.28
-- Home Assistant OS has glibc < 2.28 and cannot install these wheels
-- SDK 0.1.22 (last version with universal wheels) only supports protocol v2
-- Our patched `0.1.22+ha` combines the best of both: universal wheels + protocol v3 support
-
-**Wheel Details:**
-- **Source**: Built from SDK 0.1.22 with protocol v3 patches (see `wheels/README.md`)
-- **Build Process**: Automated via `.github/workflows/build-sdk.yml`
-- **Installation**: Automatic from `manifest.json` using a pinned, immutable commit SHA URL with sha256 verification
-- **Reproducibility**: The URL is pinned to commit `fd973cc65828d677d69e8f2406a69aa140858cd8` — use the same pinned URL for any manual installs rather than a mutable `raw/main/...` URL
-
-The SDK is required in **both** modes (bridge add-on and local CLI) as it is the Python client library used by the integration.
-
-> **Note**: The Bridge add-on eliminates the need to install the **Copilot CLI binary** locally, but the Python `github-copilot-sdk` package is still required by the integration to communicate with that server.
-
-### "Unable to connect to Copilot CLI" Error
-
-This error means the GitHub Copilot CLI is not reachable. There are two ways to fix it:
-
-**Option A – Use the GitHub Copilot Bridge add-on (recommended for Home Assistant OS)**
-
-1. Install the add-on as described in the [GitHub Copilot Bridge Add-on](#github-copilot-bridge-add-on-recommended-for-home-assistant-os) section
-2. Make sure the add-on is running and the Log tab shows no errors
-3. Enter the add-on URL (e.g. `http://a1b2c3d4-github-copilot-bridge:8000`) in the **Copilot CLI URL** field during integration setup
-
-**Option B – Install the CLI locally inside the Core container**
-
-1. **Install the Copilot CLI**: Visit https://docs.github.com/copilot/cli for installation instructions
-2. **Ensure CLI is in PATH**: Run `which copilot` or `copilot --version` to verify installation (or set `COPILOT_CLI_PATH` to the binary)
-3. **Authenticate the CLI**: Run `copilot auth login` to authenticate with your GitHub account
-4. **Check Copilot subscription**: Ensure you have an active GitHub Copilot subscription
-
-#### Home Assistant OS specifics
-
-> **Easiest approach**: Install the **GitHub Copilot Bridge** add-on from this repository (see [above](#github-copilot-bridge-add-on-recommended-for-home-assistant-os)). The steps below are only needed if you prefer to install the CLI manually.
-
-The Copilot CLI must be available **inside the Home Assistant Core container**, not only the SSH/Terminal add-on. Typical steps:
-
-1. Open the Advanced SSH & Web Terminal add-on and enter the Core container:
-   ```bash
-   docker exec -it homeassistant /bin/sh   # or /bin/bash if available
-   ```
-2. Install the Copilot CLI **inside this container** following the official docs: https://docs.github.com/copilot/cli. You can place the `copilot` binary at `/config/copilot` or `/config/bin/copilot` to persist across updates (these paths are automatically discovered by the integration), or in a standard location like `/usr/local/bin/copilot`. Example for Alpine/amd64:
-   ```bash
-   apk add --no-cache curl ca-certificates
-   # Option 1: Place at /config/bin/copilot (persists across updates, automatically discovered)
-   mkdir -p /config/bin
-   curl -L https://github.com/github/copilot-cli/releases/latest/download/copilot-linux-amd64 -o /config/bin/copilot
-   chmod +x /config/bin/copilot
-   /config/bin/copilot --version
-
-   # Option 2: Place at /usr/local/bin/copilot (requires reinstall on updates)
-   curl -L https://github.com/github/copilot-cli/releases/latest/download/copilot-linux-amd64 -o /usr/local/bin/copilot
-   chmod +x /usr/local/bin/copilot
-   copilot --version
-   ```
-   For Debian/Ubuntu containers, adapt by installing dependencies with `apt-get` and downloading the matching `copilot` binary for your architecture.
-3. Authenticate the Copilot CLI in that same shell:
-   ```bash
-   # If you installed in /config/bin:
-   /config/bin/copilot auth login
-
-   # If you installed in a PATH location like /usr/local/bin:
-   copilot auth login
-   ```
-4. Persist authentication by moving the Copilot CLI config into `/config` and pointing the CLI to it:
-   ```bash
-   mkdir -p /config/.gh_config
-   mv /root/.config/gh/* /config/.gh_config/ 2>/dev/null || true
-   export GH_CONFIG_DIR=/config/.gh_config
-   ```
-5. **Optional**: If you used Option 2 (installing in `/usr/local/bin`), you can make the install persistent across restarts with a shell command + automation (adapt the install command for your base OS/architecture):
-   ```yaml
-   # configuration.yaml (automation can live in automations.yaml if you split config)
-   shell_command:
-     install_copilot_cli: "apk add --no-cache curl ca-certificates && curl -L https://github.com/github/copilot-cli/releases/latest/download/copilot-linux-amd64 -o /usr/local/bin/copilot && chmod +x /usr/local/bin/copilot"
-
-   automation:
-     - alias: "Ensure Copilot CLI on boot"
-       id: ensure_copilot_cli
-       trigger:
-         - platform: homeassistant
-           event: start
-       action:
-         - service: shell_command.install_copilot_cli
-   ```
-   **Note**: If you used Option 1 (`/config/bin`), this automation is not needed as the binary already persists across updates.
-
-   If the CLI binary lives outside PATH and outside the auto-discovered locations (`/config/copilot`, `/config/bin/copilot`, `~/.local/bin/copilot`, `/usr/local/bin/copilot`, `/usr/bin/copilot`), set `COPILOT_CLI_PATH` to its location in your environment.
-
-### Authentication Errors
-
-- Verify your GitHub token is valid and has Copilot permissions
-- Ensure your GitHub Copilot subscription is active
-- Try regenerating your personal access token
-
-### Connection Issues
-
-- Check your internet connectivity
-- Verify the Copilot CLI is running: `copilot --version`
-- Check Home Assistant logs for detailed error messages
-
-### Slow Responses or Timeout Errors
-
-If you see a `TimeoutError: Timeout after Xs waiting for session.idle` error, the integration waited longer than the configured limit before Copilot replied.
-
-- **Increase the response timeout**: Go to **Settings** → **Devices & Services** → **GitHub Copilot** → **Configure** and raise the **Response timeout** (default 120 s, up to 600 s). Reasoning models such as o1 and o3-mini can take significantly longer than GPT-4o.
-- Try using a faster model (e.g., GPT-3.5 Turbo or GPT-4o-mini)
-- Check your network latency
-- Reduce concurrent requests
-
-For more help, [open an issue][issues].
-
-## Contributing
-
-Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+- [Architecture](docs/architecture.md)
+- [Phase 1 foundation](docs/phase-1-foundation.md)
+- [Threat model](docs/threat-model.md)
+- [SDK boundary decision](docs/decisions/0001-sdk-boundary.md)
 
 ## License
 
-This project is licensed under the GNU GPLv3 - see the [LICENSE](LICENSE) file for details.
-Some source code was originally licensed under the MIT license.
+GNU General Public License v3.0. See [LICENSE](LICENSE).
 
-### GitHub Copilot SDK License
-
-This integration depends on the GitHub Copilot SDK, which is licensed under the MIT License:
-
-```
-MIT License
-
-Copyright GitHub, Inc.
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
-## Acknowledgments
-
-- Built on Home Assistant's conversation framework
-- Based on the integration blueprint by [@ludeeus](https://github.com/ludeeus)
-
----
-
-**Note**: This integration is not officially affiliated with GitHub or Microsoft.
-## Original MIT license from integration blueprint by [@ludeeus](https://github.com/ludeeus)
-```
-MIT License
-
-Copyright (c) 2019 - 2025  Joakim Sørensen @ludeeus
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-[commits-shield]: https://img.shields.io/github/commit-activity/y/tserra30/Github-Copilot-SDK-integration.svg?style=for-the-badge
-[commits]: https://github.com/tserra30/Github-Copilot-SDK-integration/commits/main
-[hacs]: https://github.com/hacs/integration
-[hacsbadge]: https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge
-[license-shield]: https://img.shields.io/github/license/tserra30/Github-Copilot-SDK-integration.svg?style=for-the-badge
-[releases-shield]: https://img.shields.io/github/release/tserra30/Github-Copilot-SDK-integration.svg?style=for-the-badge
-[releases]: https://github.com/tserra30/Github-Copilot-SDK-integration/releases
-[issues]: https://github.com/tserra30/Github-Copilot-SDK-integration/issues
+This project is not affiliated with GitHub or Microsoft.

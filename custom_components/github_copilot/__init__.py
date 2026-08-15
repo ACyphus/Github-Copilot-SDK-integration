@@ -2,7 +2,7 @@
 Custom integration to integrate GitHub Copilot with Home Assistant.
 
 For more details about this integration, please refer to
-https://github.com/tserra30/Github-Copilot-SDK-integration
+https://github.com/ACyphus/Github-Copilot-SDK-integration
 """
 
 from __future__ import annotations
@@ -17,11 +17,11 @@ from .api import GitHubCopilotApiClient
 from .const import (
     CONF_API_TOKEN,
     CONF_CLI_URL,
-    CONF_MCP_CONFIG,
+    CONF_CONNECTION_TOKEN,
     CONF_MODEL,
     CONF_TIMEOUT,
     DEFAULT_CLI_URL,
-    DEFAULT_MCP_CONFIG,
+    DEFAULT_CONNECTION_TOKEN,
     DEFAULT_MODEL,
     DEFAULT_TIMEOUT,
     DOMAIN,
@@ -55,13 +55,6 @@ async def async_setup_entry(
             update_interval=timedelta(hours=1),
         )
         cli_url = entry.data.get(CONF_CLI_URL, DEFAULT_CLI_URL).strip()
-        client_options: dict[str, str] = {}
-        if cli_url:
-            # Remote CLI mode: external server manages its own auth; omit github_token.
-            client_options["cli_url"] = cli_url
-        else:
-            # Local CLI mode: authenticate using the stored GitHub token.
-            client_options["github_token"] = entry.data.get(CONF_API_TOKEN, "")
 
         # Normalize legacy model IDs (e.g. "claude-3.5-sonnet" → "claude-3-5-sonnet")
         # stored in config entries created before the model names were corrected.
@@ -79,14 +72,16 @@ async def async_setup_entry(
             )
             model = new_model
 
-        mcp_config = entry.data.get(CONF_MCP_CONFIG, DEFAULT_MCP_CONFIG) or ""
-
         entry.runtime_data = GitHubCopilotData(
             client=GitHubCopilotApiClient(
                 model=model,
-                client_options=client_options,
+                github_token=entry.data.get(CONF_API_TOKEN, "") if not cli_url else "",
+                cli_url=cli_url,
+                connection_token=entry.data.get(
+                    CONF_CONNECTION_TOKEN,
+                    DEFAULT_CONNECTION_TOKEN,
+                ),
                 timeout=float(entry.data.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)),
-                mcp_config=mcp_config,
             ),
             integration=async_get_loaded_integration(hass, entry.domain),
             coordinator=coordinator,

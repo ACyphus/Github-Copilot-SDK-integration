@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v4.0.0] - 2026-08-15
+
+### Changed
+
+- Upgraded GitHub Copilot CLI from v1.0.13 to v1.0.80.
+- Added a separate connection token for JSON-RPC authentication.
+- Bound the Copilot runtime to loopback and exposed it through a
+  Supervisor-network proxy.
+- Disabled built-in MCP servers.
+- Removed arbitrary custom MCP configuration from add-on options.
+
 ## [v3.11.0] - 2026-05-21
 
 ### Changed

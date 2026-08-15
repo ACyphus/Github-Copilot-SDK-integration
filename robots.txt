@@ -1,4 +1,0 @@
-User-agent: *
-Allow: /
-
-Sitemap: https://tserra30.github.io/Github-Copilot-SDK-integration/sitemap.xml

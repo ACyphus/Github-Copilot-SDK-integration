@@ -11,38 +11,21 @@ ATTRIBUTION = "Powered by GitHub Copilot SDK"
 CONF_API_TOKEN = "api_token"  # noqa: S105
 CONF_MODEL = "model"
 CONF_CLI_URL = "cli_url"
+CONF_CONNECTION_TOKEN = "connection_token"  # noqa: S105
 CONF_TIMEOUT = "timeout"
-CONF_MCP_CONFIG = "mcp_config"
 
 # Default values
-DEFAULT_MODEL = "gpt-4o"
+DEFAULT_MODEL = "auto"
 DEFAULT_CLI_URL = ""
+DEFAULT_CONNECTION_TOKEN = ""
 DEFAULT_TIMEOUT = 120
-DEFAULT_MCP_CONFIG = ""
-
-# Supported models
-SUPPORTED_MODELS = [
-    "gpt-4o",
-    "gpt-4o-mini",
-    "gpt-4",
-    "gpt-4-turbo",
-    "gpt-4.1",
-    "gpt-3.5-turbo",
-    "gpt-5",
-    "o3-mini",
-    "o1",
-    "o1-mini",
-    "claude-3-5-sonnet",
-    "claude-sonnet-4.5",
-    "claude-haiku-4.5",
-    "claude-opus-4.6",
-]
 
 # Map of legacy model IDs (stored in old config entries) to current model IDs.
-# Used to migrate existing entries that stored model values which are no
-# longer present in SUPPORTED_MODELS without requiring a full config-entry
-# version migration.
 LEGACY_MODEL_MAP: dict[str, str] = {
-    "claude-3.5-sonnet": "claude-3-5-sonnet",
-    "claude-3.7-sonnet": "claude-3-5-sonnet",
+    "gpt-4o": "auto",
+    "gpt-4o-mini": "gpt-5-mini",
+    "claude-3.5-sonnet": "claude-sonnet-4.6",
+    "claude-3-5-sonnet": "claude-sonnet-4.6",
+    "claude-3.7-sonnet": "claude-sonnet-4.6",
+    "claude-sonnet-4.5": "claude-sonnet-4.6",
 }
