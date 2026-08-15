@@ -36,6 +36,54 @@ current Copilot CLI releases no longer provide an external bind option.
 The integration and bridge share a separate connection token through
 `COPILOT_CONNECTION_TOKEN`.
 
+## Conversation handling
+
+Home Assistant owns conversation IDs, user content, assistant content, result
+construction, and TTS through `ChatLog`.
+
+The integration keeps an active Copilot SDK session for each Home Assistant
+conversation. SDK sessions receive:
+
+- A replacement Home Assistant system prompt
+- Current date and time on every user turn
+- No built-in tools
+
+`ChatLog` is the conversation authority. When an SDK session is recreated, the
+integration prepends a bounded transcript of recent ChatLog user and assistant
+messages to the first new turn. It does not replay prior turns as separate model
+requests.
+
+Per-conversation locks serialize overlapping turns while allowing separate
+conversations to run concurrently. Inactive SDK sessions expire using monotonic
+time.
+
+Each completed turn emits content-free INFO metrics for latency analysis:
+
+- Total Copilot request duration
+- SDK-reported time to first token and model duration, when available
+- Inter-token latency and token counts, when available
+- Input and response character counts
+- Whether the Home Assistant conversation reused an existing SDK session
+
+The latest values are also published as attributes on the conversation entity,
+which makes them visible through Home Assistant state history even when INFO logs
+are suppressed.
+
+Prompts, responses, conversation IDs, and provider request IDs are never included
+in these metric logs.
+
+## Streaming responses
+
+Copilot SDK sessions enable streaming events. Root-agent
+`assistant.message_delta` events are forwarded into Home Assistant through
+`ChatLog.async_add_delta_content_stream()`, allowing Assist pipelines to begin
+downstream streaming before the model finishes.
+
+The SDK's final assistant message remains authoritative. The integration appends
+any final suffix missing from the delta stream and rejects a final response that
+does not begin with the already-streamed content. Cancellation aborts the active
+SDK turn and removes its event listener.
+
 ## Authentication boundaries
 
 - The GitHub token authenticates Copilot CLI to GitHub.
@@ -69,7 +117,6 @@ Home Assistant LLM API.
 
 ## Planned extensions
 
-1. Replace the legacy conversation handler with Home Assistant `ChatLog`.
-2. Translate native Assist LLM tools into SDK custom tools.
-3. Add an AI Task entity with structured output.
-4. Add Home Assistant media attachments as SDK image blobs.
+1. Translate native Assist LLM tools into SDK custom tools.
+2. Add an AI Task entity with structured output.
+3. Add Home Assistant media attachments as SDK image blobs.

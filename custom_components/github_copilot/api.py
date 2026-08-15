@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import socket
+import time
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 from copilot.generated.rpc import PermissionDecisionReject
+from copilot.session_events import AssistantMessageDeltaData, AssistantUsageData
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
+    from datetime import timedelta
 
     import copilot
 
@@ -27,6 +31,8 @@ _SDK_INSTALL_HINT = (
     "Install the integration dependencies again."
 )
 _SESSION_DISCONNECT_TIMEOUT = 5.0
+_DEFAULT_SYSTEM_PROMPT = "You are a concise Home Assistant voice agent."
+_LOGGER = logging.getLogger(__name__)
 
 
 class GitHubCopilotApiClientError(Exception):
@@ -47,6 +53,36 @@ class CopilotSessionContext:
 
     session_id: str
     copilot_session: copilot.CopilotSession
+
+
+@dataclass(frozen=True, slots=True)
+class CopilotTurnMetrics:
+    """Content-free latency and usage metrics for one Copilot turn."""
+
+    request_duration_ms: int
+    time_to_first_token_ms: int | None
+    model_duration_ms: int | None
+    inter_token_latency_ms: int | None
+    input_tokens: int | None
+    output_tokens: int | None
+    input_characters: int
+    response_characters: int
+    model: str
+
+
+@dataclass(frozen=True, slots=True)
+class CopilotPromptResult:
+    """Return Copilot content with timing metadata."""
+
+    content: str
+    metrics: CopilotTurnMetrics
+
+
+def _duration_ms(value: timedelta | None) -> int | None:
+    """Convert an optional SDK duration to whole milliseconds."""
+    if value is None:
+        return None
+    return round(value.total_seconds() * 1000)
 
 
 def _deny_runtime_tool(
@@ -95,7 +131,10 @@ class GitHubCopilotApiClient:
         await client.get_auth_status()
         return True
 
-    async def async_create_session(self) -> CopilotSessionContext:
+    async def async_create_session(
+        self,
+        system_prompt: str = _DEFAULT_SYSTEM_PROMPT,
+    ) -> CopilotSessionContext:
         """Create a tool-isolated Copilot SDK session."""
         async with self._session_lock:
             client = await self._ensure_client()
@@ -106,9 +145,16 @@ class GitHubCopilotApiClient:
                     on_permission_request=_deny_runtime_tool,
                     enable_file_hooks=False,
                     enable_host_git_operations=False,
+                    enable_config_discovery=False,
+                    enable_on_demand_instruction_discovery=False,
                     enable_session_store=False,
                     enable_skills=False,
-                    streaming=False,
+                    skip_custom_instructions=True,
+                    streaming=True,
+                    system_message={
+                        "mode": "replace",
+                        "content": system_prompt,
+                    },
                 )
             except TimeoutError as exception:
                 msg = f"Timed out creating a Copilot session for '{self._model}'."
@@ -162,7 +208,14 @@ class GitHubCopilotApiClient:
             with suppress(Exception):
                 await self._client.delete_session(session_id)
 
-    async def async_send_prompt(self, session_id: str, prompt: str) -> str:
+    async def async_send_prompt(
+        self,
+        session_id: str,
+        prompt: str,
+        *,
+        turn_context: str = "",
+        on_delta: Callable[[str], None] | None = None,
+    ) -> CopilotPromptResult:
         """Send a text prompt to an existing session."""
         if not prompt.strip():
             msg = "Prompt cannot be empty."
@@ -174,11 +227,36 @@ class GitHubCopilotApiClient:
             msg = f"Copilot session '{session_id}' was not found."
             raise GitHubCopilotApiClientError(msg)
 
+        message = f"{turn_context.rstrip()}\n\n{prompt}" if turn_context else prompt
+        usage: AssistantUsageData | None = None
+        observed_time_to_first_token_ms: int | None = None
+        request_started = time.perf_counter()
+
+        def on_event(event: Any) -> None:
+            """Capture root-model usage without retaining response content."""
+            nonlocal observed_time_to_first_token_ms, usage
+            if event.agent_id is not None:
+                return
+            if isinstance(event.data, AssistantMessageDeltaData):
+                if observed_time_to_first_token_ms is None:
+                    observed_time_to_first_token_ms = round(
+                        (time.perf_counter() - request_started) * 1000
+                    )
+                if on_delta is not None and event.data.delta_content:
+                    on_delta(event.data.delta_content)
+            elif isinstance(event.data, AssistantUsageData):
+                usage = event.data
+
+        unsubscribe = context.copilot_session.on(on_event)
         try:
             event = await context.copilot_session.send_and_wait(
-                prompt,
+                message,
                 timeout=self._timeout,
             )
+        except asyncio.CancelledError:
+            with suppress(Exception):
+                await context.copilot_session.abort()
+            raise
         except TimeoutError as exception:
             await self._evict_broken_session(session_id)
             msg = "Timed out waiting for a Copilot response."
@@ -190,12 +268,48 @@ class GitHubCopilotApiClient:
         except Exception as exception:
             msg = f"Copilot failed to respond: {type(exception).__name__}"
             raise GitHubCopilotApiClientError(msg) from exception
+        finally:
+            request_duration_ms = round((time.perf_counter() - request_started) * 1000)
+            unsubscribe()
 
         content = getattr(getattr(event, "data", None), "content", None)
         if not content:
             msg = "Copilot returned an empty response."
             raise GitHubCopilotApiClientError(msg)
-        return content
+
+        metrics = CopilotTurnMetrics(
+            request_duration_ms=request_duration_ms,
+            time_to_first_token_ms=(
+                _duration_ms(usage.time_to_first_token if usage else None)
+                or observed_time_to_first_token_ms
+            ),
+            model_duration_ms=_duration_ms(usage.duration if usage else None),
+            inter_token_latency_ms=_duration_ms(
+                usage.inter_token_latency if usage else None
+            ),
+            input_tokens=usage.input_tokens if usage else None,
+            output_tokens=usage.output_tokens if usage else None,
+            input_characters=len(message),
+            response_characters=len(content),
+            model=usage.model if usage else self._model,
+        )
+        _LOGGER.info(
+            (
+                "Copilot turn metrics: model=%s request_ms=%d ttft_ms=%s "
+                "model_ms=%s inter_token_ms=%s input_tokens=%s output_tokens=%s "
+                "input_chars=%d response_chars=%d"
+            ),
+            metrics.model,
+            metrics.request_duration_ms,
+            metrics.time_to_first_token_ms,
+            metrics.model_duration_ms,
+            metrics.inter_token_latency_ms,
+            metrics.input_tokens,
+            metrics.output_tokens,
+            metrics.input_characters,
+            metrics.response_characters,
+        )
+        return CopilotPromptResult(content=content, metrics=metrics)
 
     async def async_close(self) -> None:
         """Close all sessions and stop the SDK client."""

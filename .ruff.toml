@@ -29,8 +29,13 @@ max-complexity = 25
 
 [lint.per-file-ignores]
 "tests/**/*.py" = [
+    "ARG001", # Fixtures can be requested for side effects
     "ANN001", # Home Assistant fixture types are supplied by pytest
+    "ANN002", # Test callback variadic arguments mirror framework callbacks
+    "ANN003", # Test callback keyword arguments mirror framework callbacks
+    "ANN202", # Private test helpers use obvious framework return values
     "INP001", # Tests are not an application package
+    "PLR2004", # Literal counts make test assertions clearer
     "S101", # Assertions are expected in tests
     "S106", # Test credentials are inert placeholders
     "SLF001", # Unit tests exercise private integration seams

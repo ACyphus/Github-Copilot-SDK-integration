@@ -7,13 +7,17 @@
                     "api_token": "GitHub Token",
                     "model": "Model",
                     "cli_url": "Copilot Bridge URL",
-                    "connection_token": "Bridge Connection Token"
+                    "connection_token": "Bridge Connection Token",
+                    "prompt": "Conversation instructions",
+                    "session_timeout": "Conversation inactivity timeout"
                 },
                 "data_description": {
                     "api_token": "Fine-grained GitHub token or OAuth user token with Copilot access. Used only when no bridge URL is configured.",
                     "model": "Copilot model ID. Use auto unless a specific model is required.",
                     "cli_url": "Bridge hostname and port, such as a1b2c3d4-github-copilot-bridge:8000. Leave empty to use the SDK's bundled runtime.",
-                    "connection_token": "Shared secret configured in the bridge add-on. Required when a bridge URL is configured."
+                    "connection_token": "Shared secret configured in the bridge add-on. Required when a bridge URL is configured.",
+                    "prompt": "Templated instructions used for the Home Assistant conversation agent.",
+                    "session_timeout": "Seconds of inactivity before a Copilot conversation session is discarded."
                 }
             }
         },
@@ -36,12 +40,16 @@
                     "model": "Model",
                     "cli_url": "Copilot Bridge URL",
                     "connection_token": "Bridge Connection Token",
+                    "prompt": "Conversation instructions",
+                    "session_timeout": "Conversation inactivity timeout",
                     "timeout": "Response timeout"
                 },
                 "data_description": {
                     "model": "The AI model to use for conversations",
                     "cli_url": "Bridge hostname and port. Leave empty to use the SDK's bundled runtime.",
                     "connection_token": "Shared secret configured in the bridge add-on.",
+                    "prompt": "Templated instructions used for the Home Assistant conversation agent.",
+                    "session_timeout": "Seconds of inactivity before a Copilot conversation session is discarded.",
                     "timeout": "Maximum seconds to wait for a Copilot response."
                 }
             }

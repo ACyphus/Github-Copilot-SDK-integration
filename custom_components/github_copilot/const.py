@@ -12,12 +12,20 @@ CONF_API_TOKEN = "api_token"  # noqa: S105
 CONF_MODEL = "model"
 CONF_CLI_URL = "cli_url"
 CONF_CONNECTION_TOKEN = "connection_token"  # noqa: S105
+CONF_SESSION_TIMEOUT = "session_timeout"
 CONF_TIMEOUT = "timeout"
 
 # Default values
 DEFAULT_MODEL = "auto"
 DEFAULT_CLI_URL = ""
 DEFAULT_CONNECTION_TOKEN = ""
+DEFAULT_PROMPT = """You are the household's Home Assistant voice agent.
+Answer truthfully in concise, conversational plain text suitable for speech.
+Do not use Markdown or provide URLs unless the user asks for them.
+You cannot control home devices yet. Say so clearly instead of claiming an
+action was completed.
+"""
+DEFAULT_SESSION_TIMEOUT = 3600
 DEFAULT_TIMEOUT = 120
 
 # Map of legacy model IDs (stored in old config entries) to current model IDs.

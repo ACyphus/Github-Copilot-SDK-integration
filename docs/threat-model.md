@@ -43,6 +43,8 @@ Cloud boundary receiving prompts and explicitly attached data.
 | Unauthenticated bridge exposure | Runtime binds loopback; authenticated proxy is Supervisor-only |
 | Stale vulnerable runtime remains pinned | Automated dependency audit |
 | Camera content is uploaded unexpectedly | Attachments require explicit future AI Task actions |
+| Recreated model session loses or invents context | Restore only bounded user/assistant ChatLog content, labeled as prior context |
+| Prior transcript is treated as system instruction | Keep transcript in the user turn and explicitly label it as non-instruction context |
 
 ## Required future controls
 

@@ -5,8 +5,12 @@ as a conversation agent.
 
 The current foundation provides:
 
-- A Home Assistant conversation entity.
+- A current Home Assistant `ChatLog` conversation entity.
 - Multi-turn Copilot sessions.
+- Home Assistant-templated conversation instructions.
+- Bounded ChatLog context restoration when SDK sessions are recreated.
+- Streaming model responses through Home Assistant Assist pipelines.
+- Content-free latency and token metrics on the conversation entity.
 - Dynamic model discovery after setup.
 - A local SDK runtime option.
 - An authenticated Home Assistant add-on for remote runtime isolation.
@@ -31,6 +35,13 @@ directory.
 
 Restart Home Assistant, then add **GitHub Copilot** from
 **Settings > Devices & services**.
+
+Use the integration options to configure:
+
+- Copilot model
+- Conversation instructions
+- Response timeout
+- Conversation inactivity timeout
 
 ### Runtime options
 
@@ -63,6 +74,16 @@ authenticates Home Assistant Core to the add-on's JSON-RPC endpoint.
 
 The endpoint is available only on the Supervisor network by default.
 
+For unpublished local development on Home Assistant OS 2026.4 or later, copy
+the add-on directory to:
+
+```text
+/mnt/data/supervisor/apps/local/github_copilot_bridge
+```
+
+Older instructions that use `/mnt/data/supervisor/addons/local` target the
+legacy directory and will not be discovered by current Supervisor releases.
+
 ## Security model
 
 The SDK client runs in `empty` mode. Conversation sessions start with:
@@ -75,6 +96,10 @@ The SDK client runs in `empty` mode. Conversation sessions start with:
 Future Home Assistant tools will be registered explicitly from the native Assist
 LLM API. Arbitrary MCP configuration is intentionally not supported by the
 bridge.
+
+Copilot receives a replacement Home Assistant system prompt rather than its
+default coding-agent prompt. Current date and time are supplied per turn so
+long-running conversations do not retain stale time context.
 
 See [`docs/threat-model.md`](docs/threat-model.md).
 
@@ -114,12 +139,21 @@ COPILOT_CONNECTION_TOKEN='your-bridge-secret' \
 The live test verifies authentication, model listing, a client-side custom-tool
 round trip, built-in tool exclusion, image input, and usage events.
 
+An opt-in Home Assistant conversation smoke test is also available:
+
+```bash
+COPILOT_RUNTIME_URL=bridge-hostname:8000 \
+COPILOT_CONNECTION_TOKEN='your-bridge-secret' \
+.venv/bin/python -m pytest -q tests/test_live_conversation.py
+```
+
 ## Documentation
 
 - [Architecture](docs/architecture.md)
 - [Phase 1 foundation](docs/phase-1-foundation.md)
 - [Threat model](docs/threat-model.md)
 - [SDK boundary decision](docs/decisions/0001-sdk-boundary.md)
+- [Conversation memory decision](docs/decisions/0002-conversation-memory.md)
 
 ## License
 

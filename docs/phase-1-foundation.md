@@ -85,6 +85,12 @@ The live boundary probe is intentionally separate:
 
 ## Remaining scope
 
-The current conversation platform still uses the legacy Home Assistant
-conversation handler. Migration to `ChatLog`, native Home Assistant tools, AI
-Task, and production image attachments belongs to later phases.
+Completed after this foundation:
+
+- Migrated the conversation entity to Home Assistant `ChatLog`.
+- Added bounded multi-turn context restoration.
+- Added streaming Copilot deltas for Assist pipeline TTS.
+- Added content-free turn latency and usage metrics.
+
+Native Home Assistant tools, AI Task, and production image attachments remain
+future work.

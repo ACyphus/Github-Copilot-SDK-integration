@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 
 import voluptuous as vol
 from homeassistant import config_entries
+from homeassistant.const import CONF_PROMPT
 from homeassistant.helpers import selector
 
 from .api import (
@@ -20,10 +21,13 @@ from .const import (
     CONF_CLI_URL,
     CONF_CONNECTION_TOKEN,
     CONF_MODEL,
+    CONF_SESSION_TIMEOUT,
     CONF_TIMEOUT,
     DEFAULT_CLI_URL,
     DEFAULT_CONNECTION_TOKEN,
     DEFAULT_MODEL,
+    DEFAULT_PROMPT,
+    DEFAULT_SESSION_TIMEOUT,
     DEFAULT_TIMEOUT,
     DOMAIN,
     LEGACY_MODEL_MAP,
@@ -48,10 +52,10 @@ class GitHubCopilotFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     def async_get_options_flow(
-        config_entry: config_entries.ConfigEntry,
+        _config_entry: config_entries.ConfigEntry,
     ) -> GitHubCopilotOptionsFlow:
         """Get the options flow for this handler."""
-        return GitHubCopilotOptionsFlow(config_entry)
+        return GitHubCopilotOptionsFlow()
 
     async def async_step_user(
         self,
@@ -67,6 +71,10 @@ class GitHubCopilotFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_CONNECTION_TOKEN,
                 DEFAULT_CONNECTION_TOKEN,
             ).strip()
+            prompt = user_input.get(CONF_PROMPT, DEFAULT_PROMPT)
+            session_timeout = float(
+                user_input.get(CONF_SESSION_TIMEOUT, DEFAULT_SESSION_TIMEOUT)
+            )
 
             if cli_url and not _validate_cli_url(cli_url):
                 _errors[CONF_CLI_URL] = "invalid_url"
@@ -125,6 +133,8 @@ class GitHubCopilotFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_MODEL: model,
                         CONF_CLI_URL: cli_url,
                         CONF_CONNECTION_TOKEN: connection_token,
+                        CONF_PROMPT: prompt,
+                        CONF_SESSION_TIMEOUT: session_timeout,
                     }
                     if cli_url:
                         data.pop(CONF_API_TOKEN, None)
@@ -238,10 +248,6 @@ class GitHubCopilotFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 class GitHubCopilotOptionsFlow(config_entries.OptionsFlow):
     """Handle options flow for GitHub Copilot integration."""
 
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
-        self.config_entry = config_entry
-
     async def async_step_init(
         self,
         user_input: dict[str, Any] | None = None,
@@ -266,6 +272,13 @@ class GitHubCopilotOptionsFlow(config_entries.OptionsFlow):
                     CONF_MODEL: user_input[CONF_MODEL].strip(),
                     CONF_CLI_URL: cli_url,
                     CONF_CONNECTION_TOKEN: connection_token,
+                    CONF_PROMPT: user_input.get(CONF_PROMPT, DEFAULT_PROMPT),
+                    CONF_SESSION_TIMEOUT: float(
+                        user_input.get(
+                            CONF_SESSION_TIMEOUT,
+                            DEFAULT_SESSION_TIMEOUT,
+                        )
+                    ),
                     CONF_TIMEOUT: float(user_input.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)),
                 }
                 if cli_url:
@@ -288,6 +301,13 @@ class GitHubCopilotOptionsFlow(config_entries.OptionsFlow):
         current_connection_token = self.config_entry.data.get(
             CONF_CONNECTION_TOKEN,
             DEFAULT_CONNECTION_TOKEN,
+        )
+        current_prompt = self.config_entry.data.get(CONF_PROMPT, DEFAULT_PROMPT)
+        current_session_timeout = float(
+            self.config_entry.data.get(
+                CONF_SESSION_TIMEOUT,
+                DEFAULT_SESSION_TIMEOUT,
+            )
         )
 
         # Get current timeout from config entry
@@ -340,6 +360,24 @@ class GitHubCopilotOptionsFlow(config_entries.OptionsFlow):
                     ): selector.TextSelector(
                         selector.TextSelectorConfig(
                             type=selector.TextSelectorType.PASSWORD,
+                        ),
+                    ),
+                    vol.Optional(
+                        CONF_PROMPT,
+                        default=current_prompt,
+                    ): selector.TemplateSelector(
+                        selector.TemplateSelectorConfig(),
+                    ),
+                    vol.Optional(
+                        CONF_SESSION_TIMEOUT,
+                        default=current_session_timeout,
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=300,
+                            max=86400,
+                            step=300,
+                            unit_of_measurement="s",
+                            mode=selector.NumberSelectorMode.BOX,
                         ),
                     ),
                     vol.Optional(
