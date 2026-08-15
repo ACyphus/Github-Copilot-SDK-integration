@@ -1,743 +1,305 @@
-"""GitHub Copilot SDK Client wrapper."""
+"""GitHub Copilot SDK client wrapper."""
 
 from __future__ import annotations
 
 import asyncio
-import json
-import os
-import shutil
 import socket
 from contextlib import suppress
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
+
+from copilot.generated.rpc import PermissionDecisionReject
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    import copilot as copilot  # noqa: PLC0414 — only for type annotations
+    import copilot
 
 try:
-    import copilot  # type: ignore[no-redef]
-
-    _COPILOT_SDK_AVAILABLE = True
+    from copilot import CopilotClient, RuntimeConnection
 except ImportError:
-    _COPILOT_SDK_AVAILABLE = False
-
-from .const import LOGGER
+    CopilotClient = None  # type: ignore[assignment,misc]
+    RuntimeConnection = None  # type: ignore[assignment,misc]
 
 _SDK_INSTALL_HINT = (
     "The github-copilot-sdk package is required but is not installed. "
-    "Install it with: pip install 'github-copilot-sdk==0.1.32'\n"
-    "On Home Assistant OS (glibc < 2.28) use the universal-wheel build instead: "
-    "pip install 'github-copilot-sdk==0.1.22'"
+    "Install the integration dependencies again."
 )
-
-# Timeout (seconds) for best-effort session destroy() calls made during error cleanup.
-_SESSION_DESTROY_TIMEOUT = 5.0
+_SESSION_DISCONNECT_TIMEOUT = 5.0
 
 
 class GitHubCopilotApiClientError(Exception):
-    """Exception to indicate a general API error."""
+    """Indicate a general Copilot client error."""
 
 
-class GitHubCopilotApiClientCommunicationError(
-    GitHubCopilotApiClientError,
-):
-    """Exception to indicate a communication error."""
+class GitHubCopilotApiClientCommunicationError(GitHubCopilotApiClientError):
+    """Indicate a Copilot runtime communication error."""
 
 
-class GitHubCopilotApiClientAuthenticationError(
-    GitHubCopilotApiClientError,
-):
-    """Exception to indicate an authentication error."""
-
-
-@dataclass
-class CliInstallationStatus:
-    """
-    Status information for Copilot CLI installation check.
-
-    This dataclass collects information about CLI installation status,
-    helping users understand if the CLI is properly installed and accessible.
-
-    Attributes:
-        cli_installed: Whether the Copilot CLI was found on the system.
-        cli_path: Path to the Copilot CLI executable, if found.
-        error_details: Specific error message for troubleshooting.
-        suggestions: List of suggestions for the user to try.
-
-    """
-
-    cli_installed: bool = False
-    cli_path: str | None = None
-    error_details: str = ""
-    suggestions: list[str] = field(default_factory=list)
-
-    def to_user_message(self) -> str:
-        """Generate user-friendly diagnostic message."""
-        parts = []
-        if not self.cli_installed:
-            parts.append("GitHub Copilot CLI is not installed or not found in PATH.")
-            parts.append("Please install it from: https://docs.github.com/copilot/cli")
-        elif self.error_details:
-            parts.append(f"Error: {self.error_details}")
-
-        if self.suggestions:
-            parts.append("Suggestions:")
-            parts.extend(f"  - {suggestion}" for suggestion in self.suggestions)
-
-        return " ".join(parts) if parts else "Unknown error"
+class GitHubCopilotApiClientAuthenticationError(GitHubCopilotApiClientError):
+    """Indicate a Copilot authentication error."""
 
 
 @dataclass
 class CopilotSessionContext:
-    """In-memory session context for Copilot SDK conversations."""
+    """Hold an active Copilot SDK session."""
 
     session_id: str
     copilot_session: copilot.CopilotSession
 
 
+def _deny_runtime_tool(
+    _request: Any,
+    _invocation: Any,
+) -> PermissionDecisionReject:
+    """Deny every runtime tool not explicitly handled by the integration."""
+    return PermissionDecisionReject(
+        feedback="This Home Assistant session does not permit that tool."
+    )
+
+
 class GitHubCopilotApiClient:
-    """GitHub Copilot SDK client wrapper."""
+    """Provide the Copilot operations used by Home Assistant."""
 
     def __init__(
         self,
-        model: str = "gpt-4o",
+        model: str = "auto",
         *,
-        client_options: dict[str, Any] | None = None,
+        github_token: str = "",
+        cli_url: str = "",
+        connection_token: str = "",
         timeout: float = 120.0,
-        mcp_config: str = "",
     ) -> None:
-        """Initialize GitHub Copilot SDK client wrapper."""
+        """Initialize the Copilot SDK wrapper."""
         self._model = model
-        self._client_options = client_options or {}
+        self._github_token = github_token
+        self._cli_url = cli_url.strip()
+        self._connection_token = connection_token
         self._timeout = timeout
-        self._mcp_config = mcp_config
-        self._mcp_config_dict: dict[str, Any] | None = None
         self._client: copilot.CopilotClient | None = None
         self._sessions: dict[str, CopilotSessionContext] = {}
         self._session_lock = asyncio.Lock()
         self._client_lock = asyncio.Lock()
 
-        # Parse and validate MCP config if provided
-        if mcp_config.strip():
-            try:
-                self._mcp_config_dict = json.loads(mcp_config)
-                LOGGER.debug(
-                    "MCP configuration loaded with %d server(s)",
-                    len(self._mcp_config_dict.get("mcpServers", {})),
-                )
-            except json.JSONDecodeError as err:
-                LOGGER.warning(
-                    "Invalid MCP configuration JSON: %s",
-                    err,
-                )
-                self._mcp_config_dict = None
-
     async def async_test_connection(self) -> bool:
-        """
-        Test the API connection.
+        """Validate authentication, model access, and session creation."""
+        client = await self._ensure_client()
+        models = await self.async_available_models()
+        if self._model not in models:
+            msg = f"Copilot model '{self._model}' is not available."
+            raise GitHubCopilotApiClientError(msg)
 
-        Raises:
-            GitHubCopilotApiClientAuthenticationError: If authentication fails.
-            GitHubCopilotApiClientCommunicationError: If connection fails.
-            GitHubCopilotApiClientError: For other API errors.
-
-        Returns:
-            True if connection is successful.
-
-        """
-        session = None
-        try:
-            session = await self.async_create_session()
-            await self.async_send_prompt(session.session_id, "Hello")
-        finally:
-            if session:
-                await self.async_end_session(session.session_id)
+        session = await self.async_create_session()
+        await self.async_end_session(session.session_id)
+        await client.get_auth_status()
         return True
 
     async def async_create_session(self) -> CopilotSessionContext:
-        """Create a Copilot SDK session."""
+        """Create a tool-isolated Copilot SDK session."""
         async with self._session_lock:
             client = await self._ensure_client()
             try:
-                session_options: dict[str, Any] = {
-                    "model": self._model,
-                    "streaming": False,
-                }
-                if self._mcp_config_dict:
-                    session_options["mcp"] = self._mcp_config_dict
-                    LOGGER.debug(
-                        "Creating session with MCP enabled for %d server(s)",
-                        len(self._mcp_config_dict.get("mcpServers", {})),
-                    )
-                else:
-                    LOGGER.debug("Creating session without MCP")
-
-                copilot_session = await client.create_session(session_options)
+                session = await client.create_session(
+                    model=self._model,
+                    available_tools=[],
+                    on_permission_request=_deny_runtime_tool,
+                    enable_file_hooks=False,
+                    enable_host_git_operations=False,
+                    enable_session_store=False,
+                    enable_skills=False,
+                    streaming=False,
+                )
             except TimeoutError as exception:
-                LOGGER.error(
-                    "Timeout creating Copilot session with model '%s': %s - %s",
-                    self._model,
-                    type(exception).__name__,
-                    str(exception),
-                    exc_info=True,
-                )
-                msg = (
-                    f"Timeout creating session with model '{self._model}'. "
-                    "The Copilot service may be slow or unavailable."
-                )
+                msg = f"Timed out creating a Copilot session for '{self._model}'."
                 raise GitHubCopilotApiClientCommunicationError(msg) from exception
             except ValueError as exception:
-                LOGGER.error(
-                    "Invalid configuration for Copilot session: %s - %s",
-                    type(exception).__name__,
-                    str(exception),
-                    exc_info=True,
-                )
-                msg = (
-                    f"Invalid session configuration for model '{self._model}': "
-                    f"{exception}"
-                )
+                msg = f"Invalid Copilot session configuration: {exception}"
                 raise GitHubCopilotApiClientError(msg) from exception
             except Exception as exception:
-                LOGGER.error(
-                    "Failed to create Copilot session with model '%s': %s - %s. "
-                    "Full traceback available.",
-                    self._model,
-                    type(exception).__name__,
-                    str(exception),
-                    exc_info=True,
-                )
-                msg = (
-                    f"Unable to start Copilot session with model '{self._model}': "
-                    f"{type(exception).__name__}: {exception}"
-                )
+                msg = f"Unable to create a Copilot session: {type(exception).__name__}"
                 raise GitHubCopilotApiClientError(msg) from exception
-            session_context = CopilotSessionContext(
-                session_id=copilot_session.session_id,
-                copilot_session=copilot_session,
+
+            context = CopilotSessionContext(
+                session_id=session.session_id,
+                copilot_session=session,
             )
-            self._sessions[session_context.session_id] = session_context
-            LOGGER.debug(
-                "Created Copilot session %s with model '%s'",
-                session_context.session_id,
-                self._model,
-            )
-            return session_context
+            self._sessions[context.session_id] = context
+            return context
 
     async def async_end_session(self, session_id: str) -> None:
-        """Destroy a Copilot SDK session."""
+        """Disconnect and delete a Copilot session."""
         async with self._session_lock:
-            session = self._sessions.pop(session_id, None)
-        if not session:
+            context = self._sessions.pop(session_id, None)
+        if context is None:
             return
+
+        client = self._client
         try:
-            await session.copilot_session.destroy()
-        except Exception as exception:
-            LOGGER.error(
-                "Failed to destroy Copilot session: %s - %s",
-                type(exception).__name__,
-                str(exception),
-                exc_info=True,
+            await asyncio.wait_for(
+                context.copilot_session.disconnect(),
+                timeout=_SESSION_DISCONNECT_TIMEOUT,
             )
-            msg = "Unable to clean up Copilot session."
+            if client is not None:
+                await client.delete_session(session_id)
+        except Exception as exception:
+            msg = "Unable to clean up the Copilot session."
             raise GitHubCopilotApiClientError(msg) from exception
 
     async def _evict_broken_session(self, session_id: str) -> None:
-        """
-        Remove a broken session from the registry and attempt best-effort cleanup.
-
-        Called after a communication failure when the underlying SDK session
-        may be in an indeterminate state. The session is popped under the lock
-        to prevent reuse, then a short-timeout destroy() is attempted outside
-        the lock as a best-effort resource cleanup. Any destroy() failures are
-        logged and suppressed so they never surface to the caller.
-        """
+        """Remove a failed session without surfacing cleanup errors."""
         async with self._session_lock:
-            session = self._sessions.pop(session_id, None)
-
-        if session is None:
+            context = self._sessions.pop(session_id, None)
+        if context is None:
             return
 
-        try:
+        with suppress(Exception):
             await asyncio.wait_for(
-                session.copilot_session.destroy(),
-                timeout=_SESSION_DESTROY_TIMEOUT,
+                context.copilot_session.disconnect(),
+                timeout=_SESSION_DISCONNECT_TIMEOUT,
             )
-        except Exception as exc:  # noqa: BLE001
-            LOGGER.warning(
-                "Best-effort destroy of broken session %s failed (%s: %s); "
-                "session has already been evicted from the registry.",
-                session_id,
-                type(exc).__name__,
-                exc,
-            )
+        if self._client is not None:
+            with suppress(Exception):
+                await self._client.delete_session(session_id)
 
     async def async_send_prompt(self, session_id: str, prompt: str) -> str:
-        """Send a prompt to an existing Copilot SDK session."""
+        """Send a text prompt to an existing session."""
         if not prompt.strip():
-            msg = "Prompt cannot be empty. Please provide a message."
-            LOGGER.error(msg)
+            msg = "Prompt cannot be empty."
             raise GitHubCopilotApiClientError(msg)
 
         async with self._session_lock:
-            session = self._sessions.get(session_id)
-        if not session:
-            msg = f"Session '{session_id}' not found. The session may have expired."
-            LOGGER.error(msg)
+            context = self._sessions.get(session_id)
+        if context is None:
+            msg = f"Copilot session '{session_id}' was not found."
             raise GitHubCopilotApiClientError(msg)
 
         try:
-            event = await session.copilot_session.send_and_wait(
-                {"prompt": prompt}, timeout=self._timeout
+            event = await context.copilot_session.send_and_wait(
+                prompt,
+                timeout=self._timeout,
             )
         except TimeoutError as exception:
-            LOGGER.error(
-                "Copilot session %s timed out waiting for response: %s - %s",
-                session_id,
-                type(exception).__name__,
-                str(exception),
-                exc_info=True,
-            )
-            # Remove the stale session so it cannot be reused in a broken state.
             await self._evict_broken_session(session_id)
-            msg = (
-                "Request timed out waiting for Copilot response. "
-                "Please try again or check your connection."
-            )
+            msg = "Timed out waiting for a Copilot response."
             raise GitHubCopilotApiClientCommunicationError(msg) from exception
-        except ConnectionError as exception:
-            LOGGER.error(
-                "Connection error in Copilot session %s: %s - %s",
-                session_id,
-                type(exception).__name__,
-                str(exception),
-                exc_info=True,
-            )
-            # Remove the broken session so it cannot be reused.
+        except (ConnectionError, OSError) as exception:
             await self._evict_broken_session(session_id)
-            msg = "Lost connection to Copilot. Please check your network and try again."
+            msg = "Lost the connection to the Copilot runtime."
             raise GitHubCopilotApiClientCommunicationError(msg) from exception
         except Exception as exception:
-            LOGGER.error(
-                "Copilot session %s error: %s - %s. Full details in traceback.",
-                session_id,
-                type(exception).__name__,
-                str(exception),
-                exc_info=True,
-            )
-            msg = f"Copilot failed to respond: {type(exception).__name__}: {exception}"
+            msg = f"Copilot failed to respond: {type(exception).__name__}"
             raise GitHubCopilotApiClientError(msg) from exception
 
-        if event is None:
-            msg = (
-                "No response received from Copilot. "
-                "The service may be experiencing issues."
-            )
-            LOGGER.error(msg)
-            raise GitHubCopilotApiClientError(msg)
-
-        content = getattr(event.data, "content", None)
+        content = getattr(getattr(event, "data", None), "content", None)
         if not content:
-            msg = (
-                "Copilot returned an empty response. "
-                "Please try rephrasing your request."
-            )
-            LOGGER.error(msg)
+            msg = "Copilot returned an empty response."
             raise GitHubCopilotApiClientError(msg)
         return content
 
     async def async_close(self) -> None:
-        """Close the Copilot SDK client and sessions."""
+        """Close all sessions and stop the SDK client."""
         async with self._session_lock:
-            session_ids = list(self._sessions.keys())
+            session_ids = list(self._sessions)
         for session_id in session_ids:
             with suppress(GitHubCopilotApiClientError):
                 await self.async_end_session(session_id)
+
         async with self._client_lock:
-            if self._client:
+            if self._client is not None:
                 await self._client.stop()
                 self._client = None
 
-    def _check_cli_installed(self) -> CliInstallationStatus:
-        """Check if GitHub Copilot CLI is installed and accessible."""
-        status = CliInstallationStatus()
-
-        base_suggestions = [
-            ("Install the GitHub Copilot CLI: https://docs.github.com/copilot/cli"),
-            (
-                "Ensure the CLI is in your PATH or set COPILOT_CLI_PATH to its "
-                "full path."
-            ),
-        ]
-
-        raw_cli_candidates = [
-            self._client_options.get("cli_path"),
-            os.environ.get("COPILOT_CLI_PATH"),
-            "copilot",
-        ]
-        cli_candidates = [
-            candidate.strip()
-            for candidate in raw_cli_candidates
-            if isinstance(candidate, str) and candidate.strip()
-        ]
-        cli_to_check = cli_candidates[0] if cli_candidates else "copilot"
-        explicit_value = next(
-            (
-                candidate.strip()
-                for candidate in raw_cli_candidates[:2]
-                if isinstance(candidate, str) and candidate.strip()
-            ),
-            None,
-        )
-        explicit_requested = explicit_value is not None
-
-        # Check for copilot CLI in PATH or at an explicit location
-        cli_path = shutil.which(cli_to_check)
-        explicit_path: Path | None = None
-        candidate_path: Path | None = None
-        path_parsing_failed = False
-        try:
-            candidate_path = Path(cli_to_check).expanduser()
-        except (ValueError, OSError, RuntimeError) as error:
-            status.error_details = (
-                f"The configured Copilot CLI path is invalid ({type(error).__name__})"
-            )
-            path_parsing_failed = True
-
-        if path_parsing_failed:
-            status.suggestions = list(base_suggestions)
-            return status
-
-        # Defensive checks before using candidate_path
-        try:
-            if cli_to_check != "copilot" and (
-                candidate_path.is_absolute()
-                or os.sep in cli_to_check
-                or (os.altsep and os.altsep in cli_to_check)
-            ):
-                explicit_path = candidate_path
-        except (AttributeError, OSError, RuntimeError) as error:
-            # If any path check fails, treat it as an invalid path
-            status.error_details = (
-                f"Path validation failed ({type(error).__name__}). "
-                "Please provide a valid CLI path."
-            )
-            status.suggestions = list(base_suggestions)
-            return status
-
-        if explicit_requested and explicit_path:
-            try:
-                if explicit_path.exists():
-                    if explicit_path.is_file() and os.access(explicit_path, os.X_OK):
-                        cli_path = str(explicit_path)
-                    else:
-                        status.error_details = (
-                            "The configured Copilot CLI path exists but is not "
-                            "executable. Adjust permissions (e.g., chmod +x) and retry."
-                        )
-                        status.suggestions = [
-                            *base_suggestions,
-                            (
-                                "An explicit CLI path was provided; "
-                                "ensure it exists and is executable."
-                            ),
-                        ]
-                        return status
-            except (OSError, RuntimeError) as error:
-                status.error_details = (
-                    f"Failed to verify CLI path ({type(error).__name__})"
-                )
-                status.suggestions = list(base_suggestions)
-                return status
-
-        if explicit_requested and not cli_path:
-            status.error_details = (
-                "The configured Copilot CLI path was not found or is not executable."
-            )
-            status.suggestions = [
-                *base_suggestions,
-                (
-                    "An explicit CLI path was provided; ensure it exists and is "
-                    "executable."
-                ),
-                (
-                    "If running Home Assistant OS, install the CLI inside the core "
-                    "container (not only the SSH add-on) and make auth persistent "
-                    "with GH_CONFIG_DIR=/config/.gh_config."
-                ),
-            ]
-            return status
-
-        if cli_path:
-            status.cli_installed = True
-            status.cli_path = cli_path
-            status.error_details = ""
-        else:
-            # Also check common installation locations
-            common_paths = [
-                Path.home() / ".local" / "bin" / "copilot",
-                Path("/usr/local/bin/copilot"),
-                Path("/usr/bin/copilot"),
-                Path("/config/copilot"),
-                Path("/config/bin/copilot"),
-            ]
-            for path in common_paths:
-                try:
-                    if path.is_file() and os.access(path, os.X_OK):
-                        status.cli_installed = True
-                        status.cli_path = str(path)
-                        break
-                except (OSError, RuntimeError):
-                    # If we can't check this path, skip to the next one
-                    continue
-
-        if not status.cli_installed:
-            status.error_details = status.error_details or (
-                "Copilot CLI was not found in PATH or common installation locations "
-                "(~/.local/bin/copilot, /usr/local/bin/copilot, /usr/bin/copilot, "
-                "/config/copilot, /config/bin/copilot)."
-            )
-            status.suggestions = [
-                *base_suggestions,
-                (
-                    "If running Home Assistant OS, you can place the CLI binary at "
-                    "/config/copilot or /config/bin/copilot to persist across updates."
-                ),
-                (
-                    "Make authentication persistent with "
-                    "GH_CONFIG_DIR=/config/.gh_config."
-                ),
-            ]
-
-        return status
-
-    @staticmethod
-    def _format_errno_info(exception: Exception) -> str:
-        """
-        Format errno info from an exception without exposing path details.
-
-        Args:
-            exception: The exception to extract errno from
-
-        Returns:
-            A formatted string with errno if available, empty string otherwise
-
-        """
-        if hasattr(exception, "errno") and exception.errno:
-            return f" (errno: {exception.errno})"
-        return ""
-
     async def _ensure_client(self) -> copilot.CopilotClient:
-        """Ensure the Copilot SDK client is started."""
+        """Start and authenticate the Copilot SDK client."""
         async with self._client_lock:
-            if self._client:
+            if self._client is not None:
                 return self._client
-
-            if not _COPILOT_SDK_AVAILABLE:
-                LOGGER.error(
-                    "github-copilot-sdk is not installed. %s",
-                    _SDK_INSTALL_HINT,
-                )
+            if CopilotClient is None or RuntimeConnection is None:
                 raise GitHubCopilotApiClientError(_SDK_INSTALL_HINT)
 
-            # Skip local CLI check when a remote CLI URL is configured
-            using_remote_cli = bool(self._client_options.get("cli_url", "").strip())
-
-            if not using_remote_cli:
-                # First check if CLI is installed (only needed for local mode)
-                cli_status = self._check_cli_installed()
-                if not cli_status.cli_installed:
-                    LOGGER.error(
-                        "GitHub Copilot CLI not found. %s",
-                        cli_status.to_user_message(),
-                    )
-                    msg = (
-                        "GitHub Copilot CLI not found. "
-                        "Please install it from https://docs.github.com/copilot/cli "
-                        "and ensure it's in your PATH."
-                    )
-                    raise GitHubCopilotApiClientCommunicationError(msg)
-
-            # Initialize the Copilot client
             try:
-                client = copilot.CopilotClient(self._client_options)
-            except (TypeError, ValueError) as exception:
-                LOGGER.error(
-                    "Invalid client configuration: %s - %s",
-                    type(exception).__name__,
-                    str(exception),
-                    exc_info=True,
-                )
-                msg = (
-                    "Invalid Copilot client configuration. Please check your settings."
-                )
-                raise GitHubCopilotApiClientError(msg) from exception
-            except Exception as exception:
-                LOGGER.error(
-                    "Failed to initialize Copilot client: %s - %s",
-                    type(exception).__name__,
-                    str(exception),
-                    exc_info=True,
-                )
-                msg = (
-                    f"Unable to initialize Copilot client: "
-                    f"{type(exception).__name__}: {exception}"
-                )
-                raise GitHubCopilotApiClientError(msg) from exception
-            try:
+                if self._cli_url:
+                    connection = RuntimeConnection.for_uri(
+                        self._cli_url,
+                        connection_token=self._connection_token,
+                    )
+                    client = CopilotClient(
+                        connection=connection,
+                        log_level="error",
+                        mode="empty",
+                    )
+                else:
+                    client = CopilotClient(
+                        github_token=self._github_token,
+                        log_level="error",
+                        mode="empty",
+                        use_logged_in_user=False,
+                    )
                 await client.start()
-            except FileNotFoundError as exception:
-                LOGGER.error(
-                    "Copilot CLI executable not found%s.",
-                    self._format_errno_info(exception),
-                )
-                msg = (
-                    "GitHub Copilot CLI executable not found. "
-                    "Please install it from https://docs.github.com/copilot/cli"
-                )
-                raise GitHubCopilotApiClientCommunicationError(msg) from None
-            except PermissionError as exception:
-                LOGGER.error(
-                    "Permission denied when starting Copilot CLI%s.",
-                    self._format_errno_info(exception),
-                )
-                msg = (
-                    "Permission denied when starting GitHub Copilot CLI. "
-                    "Please check file permissions."
-                )
-                raise GitHubCopilotApiClientCommunicationError(msg) from None
-            except ConnectionRefusedError as exception:
-                LOGGER.error(
-                    "Connection refused by Copilot CLI: %s - %s",
-                    type(exception).__name__,
-                    str(exception),
-                    exc_info=True,
-                )
-                msg = (
-                    "Connection refused by GitHub Copilot CLI. "
-                    "The CLI server may not be running or is misconfigured."
-                )
-                raise GitHubCopilotApiClientCommunicationError(msg) from exception
-            except RuntimeError as exception:
-                # The SDK wraps socket.gaierror (DNS failure) in RuntimeError.
-                # Detect this case and surface an actionable message.
-                cause = exception.__cause__ or exception.__context__
-                dns_errnos = {
-                    getattr(socket, "EAI_NONAME", -2),  # Name or service not known
-                    getattr(socket, "EAI_AGAIN", -3),  # Temporary DNS failure
-                    getattr(socket, "EAI_NODATA", -5),  # No address for hostname
-                }
-                # gaierror may store the code in .errno or args[0]
-                cause_errno = (
-                    getattr(cause, "errno", None)
-                    if isinstance(cause, OSError)
-                    else None
-                )
-                if cause_errno is None and isinstance(cause, OSError) and cause.args:
-                    cause_errno = cause.args[0]
-                if isinstance(cause, OSError) and cause_errno in dns_errnos:
-                    cli_url = self._client_options.get("cli_url", "")
-                    # Extract only host[:port] to avoid logging credentials or paths
-                    netloc = ""
-                    try:
-                        parsed = urlparse(cli_url)
-                        if parsed.hostname:
-                            netloc = (
-                                f"{parsed.hostname}:{parsed.port}"
-                                if parsed.port
-                                else parsed.hostname
-                            )
-                    except ValueError:
-                        pass
-                    location = f" '{netloc}'" if netloc else ""
-                    LOGGER.error(
-                        "DNS resolution failed for Copilot CLI server%s: %s",
-                        location,
-                        str(cause),
-                        exc_info=cause,
-                    )
-                    msg = (
-                        f"Cannot resolve the Copilot CLI server{location}. "
-                        "Please verify the bridge add-on is installed and running, "
-                        "and that the CLI URL in the integration settings is correct."
-                    )
-                    raise GitHubCopilotApiClientCommunicationError(msg) from exception
-                exc_name = type(exception).__name__
-                LOGGER.error(
-                    "Failed to start Copilot SDK client: %s - %s. "
-                    "Full traceback available in logs.",
-                    exc_name,
-                    str(exception),
-                    exc_info=True,
-                )
-                msg = (
-                    f"Unable to connect to GitHub Copilot CLI: {exc_name}: {exception}"
-                )
-                raise GitHubCopilotApiClientCommunicationError(msg) from exception
-            except Exception as exception:
-                LOGGER.error(
-                    "Failed to start Copilot SDK client: %s - %s. "
-                    "Full traceback available in logs.",
-                    type(exception).__name__,
-                    str(exception),
-                    exc_info=True,
-                )
-                exc_name = type(exception).__name__
-                msg = (
-                    f"Unable to connect to GitHub Copilot CLI: {exc_name}: {exception}"
-                )
-                raise GitHubCopilotApiClientCommunicationError(msg) from exception
+            except Exception as exception:  # noqa: BLE001
+                self._raise_start_error(exception)
 
             try:
                 auth_status = await client.get_auth_status()
             except Exception as exception:
                 await client.stop()
-                LOGGER.error(
-                    "Failed to get Copilot authentication status: %s - %s. "
-                    "Full traceback in logs.",
-                    type(exception).__name__,
-                    str(exception),
-                    exc_info=True,
-                )
-                msg = (
-                    "Failed to verify Copilot CLI authentication. "
-                    "Please run 'copilot auth login' to authenticate."
-                )
+                msg = "Unable to verify Copilot authentication."
                 raise GitHubCopilotApiClientAuthenticationError(msg) from exception
 
             if not auth_status.isAuthenticated:
                 await client.stop()
-                LOGGER.warning(
-                    "Copilot CLI is not authenticated. "
-                    "User needs to run 'copilot auth login'"
-                )
                 msg = (
-                    "GitHub Copilot CLI is not authenticated. "
-                    "Please run 'copilot auth login' to authenticate, "
-                    "or provide a valid GitHub token with Copilot access."
+                    "GitHub Copilot is not authenticated. Configure a supported "
+                    "fine-grained token or OAuth user token."
                 )
                 raise GitHubCopilotApiClientAuthenticationError(msg)
 
-            LOGGER.info("Successfully connected to GitHub Copilot CLI")
             self._client = client
             return client
 
+    def _raise_start_error(self, exception: Exception) -> None:
+        """Translate SDK startup failures without leaking credentials."""
+        cause = exception.__cause__ or exception.__context__
+        dns_errnos = {
+            getattr(socket, "EAI_NONAME", -2),
+            getattr(socket, "EAI_AGAIN", -3),
+            getattr(socket, "EAI_NODATA", -5),
+        }
+        if isinstance(cause, OSError) and getattr(cause, "errno", None) in dns_errnos:
+            location = self._safe_cli_location()
+            msg = f"Cannot resolve the Copilot bridge{location}."
+            raise GitHubCopilotApiClientCommunicationError(msg) from exception
+
+        exception_text = str(exception)
+        if "AUTHENTICATION_FAILED" in exception_text:
+            msg = "The Copilot bridge connection token was rejected."
+            raise GitHubCopilotApiClientAuthenticationError(msg) from exception
+
+        msg = f"Unable to connect to the Copilot runtime: {type(exception).__name__}"
+        raise GitHubCopilotApiClientCommunicationError(msg) from exception
+
+    def _safe_cli_location(self) -> str:
+        """Return a log-safe bridge location."""
+        if not self._cli_url:
+            return ""
+        try:
+            parsed = urlparse(
+                self._cli_url if "://" in self._cli_url else f"tcp://{self._cli_url}"
+            )
+            if not parsed.hostname:
+                return ""
+            host = parsed.hostname
+        except ValueError:
+            return ""
+        return f" at {host}:{parsed.port}" if parsed.port else f" at {host}"
+
     async def async_available_models(self) -> Sequence[str]:
-        """Return available model IDs from the Copilot SDK."""
+        """Return model IDs available to the authenticated account."""
         client = await self._ensure_client()
         try:
             models = await client.list_models()
         except Exception as exception:
-            LOGGER.error(
-                "Failed to list Copilot models: %s - %s",
-                type(exception).__name__,
-                str(exception),
-                exc_info=True,
-            )
             msg = "Unable to fetch Copilot models."
             raise GitHubCopilotApiClientCommunicationError(msg) from exception
         return [model.id for model in models]

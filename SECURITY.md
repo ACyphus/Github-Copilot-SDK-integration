@@ -15,7 +15,7 @@ If you discover a security vulnerability, please **do not** open a public GitHub
 
 Instead, use GitHub's private vulnerability reporting feature:
 
-1. Go to the [Security tab](https://github.com/tserra30/Github-Copilot-SDK-integration/security) of this repository.
+1. Go to the [Security tab](https://github.com/ACyphus/Github-Copilot-SDK-integration/security) of this repository.
 2. Click **"Report a vulnerability"**.
 3. Fill in the details including steps to reproduce, expected behavior, and impact assessment.
 
@@ -26,4 +26,5 @@ You can expect an acknowledgement within a few days. We will work with you to un
 - **Never commit API tokens or credentials** to the repository.
 - **Keep your GitHub Personal Access Token secure** — treat it like a password.
 - **Rotate tokens regularly** and revoke any that may have been exposed.
-- When using the Bridge add-on, the `GH_TOKEN` is stored in the add-on configuration and is not exposed to the integration or logged.
+- The bridge stores `COPILOT_GITHUB_TOKEN`; Home Assistant Core stores only the
+  separate bridge connection token in remote mode.

@@ -3,13 +3,13 @@ FROM $BUILD_FROM
 
 # Install only required runtime dependencies.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates tar jq \
+    && apt-get install -y --no-install-recommends curl ca-certificates tar jq socat \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # Install the GitHub Copilot CLI from a pinned release, verifying the SHA-256 checksum.
 # Only linux/amd64 and linux/arm64 binaries are published; other architectures are unsupported.
-ARG COPILOT_VERSION=v1.0.13
+ARG COPILOT_VERSION=v1.0.80
 RUN case "$(uname -m)" in \
       x86_64)  ARCH="x64"   ;; \
       aarch64) ARCH="arm64" ;; \

@@ -1,12 +1,12 @@
 name: GitHub Copilot Bridge
-version: "v3.11.0"
+version: "v4.0.0"
 slug: github_copilot_bridge
 description: >
   Runs the GitHub Copilot CLI in headless server mode so the GitHub Copilot
   integration can connect to it remotely.
-  Supports custom MCP server configuration (JSON string or config file path).
+  Uses an authenticated internal connection and disables built-in MCP servers.
   The server listens on port 8000 (internal network only, not exposed to the host).
-url: https://github.com/tserra30/Github-Copilot-SDK-integration
+url: https://github.com/ACyphus/Github-Copilot-SDK-integration
 arch:
   - aarch64
   - amd64
@@ -16,10 +16,10 @@ ports_description:
   8000/tcp: GitHub Copilot CLI server (internal only, accessible via add-on hostname on Supervisor network)
 options:
   github_token: ""
-  mcp_config: ""
+  connection_token: ""
 schema:
   github_token: password
-  mcp_config: str
+  connection_token: password
 init: false
 startup: application
 boot: auto

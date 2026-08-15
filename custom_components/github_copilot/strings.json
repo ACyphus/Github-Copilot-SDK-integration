@@ -2,24 +2,27 @@
     "config": {
         "step": {
             "user": {
-                "description": "Configure GitHub Copilot integration. You'll need a GitHub token for Copilot SDK and either the Copilot CLI installed locally or the GitHub Copilot Bridge add-on running. For more information, visit the [documentation]({documentation_url}).",
+                "description": "Configure GitHub Copilot. Use a supported GitHub token for the bundled local runtime, or connect to the authenticated GitHub Copilot Bridge add-on. For more information, visit the [documentation]({documentation_url}).",
                 "data": {
                     "api_token": "GitHub Token",
                     "model": "Model",
-                    "cli_url": "Copilot CLI URL (add-on)"
+                    "cli_url": "Copilot Bridge URL",
+                    "connection_token": "Bridge Connection Token"
                 },
                 "data_description": {
-                    "api_token": "Your GitHub personal access token with Copilot permissions",
-                    "model": "The AI model to use for conversations",
-                    "cli_url": "URL of the GitHub Copilot Bridge add-on server. Leave empty to use the locally installed Copilot CLI."
+                    "api_token": "Fine-grained GitHub token or OAuth user token with Copilot access. Used only when no bridge URL is configured.",
+                    "model": "Copilot model ID. Use auto unless a specific model is required.",
+                    "cli_url": "Bridge hostname and port, such as a1b2c3d4-github-copilot-bridge:8000. Leave empty to use the SDK's bundled runtime.",
+                    "connection_token": "Shared secret configured in the bridge add-on. Required when a bridge URL is configured."
                 }
             }
         },
         "error": {
             "auth": "Authentication failed. Please verify your GitHub token is valid and has Copilot permissions. Ensure you have an active GitHub Copilot subscription.",
-            "connection": "Unable to connect to GitHub Copilot CLI. Please verify the Copilot CLI is installed and running (locally or via the add-on), and check the Copilot CLI URL if using the add-on.",
-            "invalid_url": "Invalid URL. Enter a valid HTTP or HTTPS address for the Copilot Bridge add-on (for example, the add-on hostname on port 8000).",
+            "connection": "Unable to connect to the GitHub Copilot runtime. Verify the bridge URL and that the add-on is running.",
+            "invalid_url": "Invalid bridge address. Enter a hostname and port, optionally prefixed with tcp://, http://, or https://.",
             "token_required": "GitHub Token is required when not using the Copilot Bridge add-on.",
+            "connection_token_required": "Bridge Connection Token is required when using the Copilot Bridge add-on.",
             "unknown": "An unexpected error occurred. Please check the Home Assistant logs for details."
         },
         "abort": {
@@ -31,13 +34,15 @@
             "init": {
                 "data": {
                     "model": "Model",
-                    "cli_url": "Copilot CLI URL (add-on)",
+                    "cli_url": "Copilot Bridge URL",
+                    "connection_token": "Bridge Connection Token",
                     "timeout": "Response timeout"
                 },
                 "data_description": {
                     "model": "The AI model to use for conversations",
-                    "cli_url": "URL of the GitHub Copilot Bridge add-on server. Leave empty to use the locally installed Copilot CLI.",
-                    "timeout": "Maximum seconds to wait for a Copilot response before timing out. Increase this value for slower models (e.g. o1, o3-mini) or slower connections."
+                    "cli_url": "Bridge hostname and port. Leave empty to use the SDK's bundled runtime.",
+                    "connection_token": "Shared secret configured in the bridge add-on.",
+                    "timeout": "Maximum seconds to wait for a Copilot response."
                 }
             }
         }

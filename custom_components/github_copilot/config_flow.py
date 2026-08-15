@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import os
 from typing import Any
 from urllib.parse import urlparse
 
@@ -20,52 +18,27 @@ from .api import (
 from .const import (
     CONF_API_TOKEN,
     CONF_CLI_URL,
-    CONF_MCP_CONFIG,
+    CONF_CONNECTION_TOKEN,
     CONF_MODEL,
     CONF_TIMEOUT,
     DEFAULT_CLI_URL,
-    DEFAULT_MCP_CONFIG,
+    DEFAULT_CONNECTION_TOKEN,
     DEFAULT_MODEL,
     DEFAULT_TIMEOUT,
     DOMAIN,
     LEGACY_MODEL_MAP,
     LOGGER,
-    SUPPORTED_MODELS,
 )
 
 
 def _validate_cli_url(cli_url: str) -> bool:
-    """Return True if cli_url is a valid http/https URL, False otherwise."""
-    parsed = urlparse(cli_url)
-    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
-
-
-def _validate_mcp_config(mcp_config: str) -> bool:
-    """Return True if mcp_config is a valid MCP configuration string or file path."""
-    # Accept either a JSON string containing an object with an "mcpServers" key,
-    # or a file path (contains a path separator) which is resolved at runtime.
-    # Empty strings are considered valid (optional).
-    if not mcp_config or not mcp_config.strip():
-        return True
-
-    # Treat obvious file paths as valid (we can't verify add-on container files here)
-    normalized = mcp_config.strip()
-
-    if any(
-        sep in normalized for sep in (os.sep, "/", "\\")
-    ) and not normalized.startswith("{"):
-        return True
-
+    """Return whether a bridge address contains a hostname and port."""
+    normalized = cli_url if "://" in cli_url else f"tcp://{cli_url}"
     try:
-        parsed = json.loads(normalized)
-    except (json.JSONDecodeError, RecursionError):
+        parsed = urlparse(normalized)
+        return bool(parsed.hostname and parsed.port)
+    except ValueError:
         return False
-
-    if not isinstance(parsed, dict):
-        return False
-
-    # Prefer presence of 'mcpServers' key but don't be overly strict
-    return "mcpServers" in parsed
 
 
 class GitHubCopilotFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
@@ -87,21 +60,20 @@ class GitHubCopilotFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle a flow initialized by the user."""
         _errors = {}
         if user_input is not None:
-            model = user_input.get(CONF_MODEL, DEFAULT_MODEL)
+            model = user_input.get(CONF_MODEL, DEFAULT_MODEL).strip()
             cli_url = user_input.get(CONF_CLI_URL, DEFAULT_CLI_URL).strip()
             api_token = user_input.get(CONF_API_TOKEN, "").strip()
-            mcp_config = user_input.get(CONF_MCP_CONFIG, DEFAULT_MCP_CONFIG) or ""
+            connection_token = user_input.get(
+                CONF_CONNECTION_TOKEN,
+                DEFAULT_CONNECTION_TOKEN,
+            ).strip()
 
-            # Validate the CLI URL format if provided
             if cli_url and not _validate_cli_url(cli_url):
                 _errors[CONF_CLI_URL] = "invalid_url"
+            elif cli_url and not connection_token:
+                _errors[CONF_CONNECTION_TOKEN] = "connection_token_required"
             elif not cli_url and not api_token:
-                # Local mode requires a GitHub token; remote mode does not.
                 _errors[CONF_API_TOKEN] = "token_required"
-
-            # Validate MCP config if provided
-            if mcp_config and not _validate_mcp_config(mcp_config):
-                _errors[CONF_MCP_CONFIG] = "invalid_mcp"
 
             if not _errors:
                 try:
@@ -113,7 +85,7 @@ class GitHubCopilotFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                         api_token=api_token,
                         model=model,
                         cli_url=cli_url,
-                        mcp_config=mcp_config,
+                        connection_token=connection_token,
                     )
                 except GitHubCopilotApiClientAuthenticationError as exception:
                     LOGGER.warning(
@@ -148,11 +120,16 @@ class GitHubCopilotFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                         "GitHub Copilot integration configured with model '%s'",
                         model,
                     )
-                    # Normalize the cli_url to the stripped value before persisting.
-                    # In remote mode, don't persist the token (server handles auth).
-                    data = {**user_input, CONF_CLI_URL: cli_url}
+                    data = {
+                        **user_input,
+                        CONF_MODEL: model,
+                        CONF_CLI_URL: cli_url,
+                        CONF_CONNECTION_TOKEN: connection_token,
+                    }
                     if cli_url:
                         data.pop(CONF_API_TOKEN, None)
+                    else:
+                        data.pop(CONF_CONNECTION_TOKEN, None)
                     return self.async_create_entry(
                         title="GitHub Copilot",
                         data=data,
@@ -171,11 +148,10 @@ class GitHubCopilotFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                         vol.Optional(
                             CONF_MODEL,
                             default=DEFAULT_MODEL,
-                        ): selector.SelectSelector(
-                            selector.SelectSelectorConfig(
-                                options=SUPPORTED_MODELS,
-                                mode=selector.SelectSelectorMode.DROPDOWN,
-                            ),
+                        ): selector.TextSelector(
+                            selector.TextSelectorConfig(
+                                type=selector.TextSelectorType.TEXT,
+                            )
                         ),
                         vol.Optional(
                             CONF_CLI_URL,
@@ -186,18 +162,18 @@ class GitHubCopilotFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                             ),
                         ),
                         vol.Optional(
-                            CONF_MCP_CONFIG,
-                            default=DEFAULT_MCP_CONFIG,
+                            CONF_CONNECTION_TOKEN,
+                            default=DEFAULT_CONNECTION_TOKEN,
                         ): selector.TextSelector(
                             selector.TextSelectorConfig(
-                                type=selector.TextSelectorType.TEXT,
+                                type=selector.TextSelectorType.PASSWORD,
                             ),
                         ),
                     },
                 ),
                 errors=_errors,
                 description_placeholders={
-                    "documentation_url": "https://github.com/tserra30/Github-Copilot-SDK-integration",
+                    "documentation_url": "https://github.com/ACyphus/Github-Copilot-SDK-integration",
                 },
             )
         except Exception as exception:  # noqa: BLE001
@@ -223,21 +199,14 @@ class GitHubCopilotFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         api_token: str,
         model: str,
         cli_url: str = DEFAULT_CLI_URL,
-        mcp_config: str = DEFAULT_MCP_CONFIG,
+        connection_token: str = DEFAULT_CONNECTION_TOKEN,
     ) -> None:
         """Validate credentials."""
-        client_options: dict[str, Any] = {}
-        if cli_url:
-            # Remote CLI mode: the external server manages its own authentication,
-            # so github_token must NOT be passed (SDK enforces this constraint).
-            client_options["cli_url"] = cli_url
-        else:
-            # Local CLI mode: authenticate using the provided GitHub token.
-            client_options["github_token"] = api_token
         client = GitHubCopilotApiClient(
             model=model,
-            client_options=client_options,
-            mcp_config=(mcp_config or ""),
+            github_token=api_token if not cli_url else "",
+            cli_url=cli_url,
+            connection_token=connection_token,
         )
         try:
             await client.async_test_connection()
@@ -281,30 +250,31 @@ class GitHubCopilotOptionsFlow(config_entries.OptionsFlow):
         _errors: dict[str, str] = {}
         if user_input is not None:
             cli_url = user_input.get(CONF_CLI_URL, DEFAULT_CLI_URL).strip()
-            mcp_config = user_input.get(CONF_MCP_CONFIG, DEFAULT_MCP_CONFIG) or ""
+            connection_token = user_input.get(
+                CONF_CONNECTION_TOKEN,
+                DEFAULT_CONNECTION_TOKEN,
+            ).strip()
 
-            # Apply the same http/https validation as the initial config flow
             if cli_url and not _validate_cli_url(cli_url):
                 _errors[CONF_CLI_URL] = "invalid_url"
-
-            # Validate MCP config if provided
-            if mcp_config and not _validate_mcp_config(mcp_config):
-                _errors[CONF_MCP_CONFIG] = "invalid_mcp"
+            elif cli_url and not connection_token:
+                _errors[CONF_CONNECTION_TOKEN] = "connection_token_required"
 
             if not _errors:
-                # Update the config entry with the normalized model, CLI URL,
-                # timeout, and MCP configuration.
+                data = {
+                    **self.config_entry.data,
+                    CONF_MODEL: user_input[CONF_MODEL].strip(),
+                    CONF_CLI_URL: cli_url,
+                    CONF_CONNECTION_TOKEN: connection_token,
+                    CONF_TIMEOUT: float(user_input.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)),
+                }
+                if cli_url:
+                    data.pop(CONF_API_TOKEN, None)
+                else:
+                    data.pop(CONF_CONNECTION_TOKEN, None)
                 self.hass.config_entries.async_update_entry(
                     self.config_entry,
-                    data={
-                        **self.config_entry.data,
-                        CONF_MODEL: user_input[CONF_MODEL],
-                        CONF_CLI_URL: cli_url,
-                        CONF_TIMEOUT: float(
-                            user_input.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
-                        ),
-                        CONF_MCP_CONFIG: mcp_config,
-                    },
+                    data=data,
                 )
                 return self.async_create_entry(title="", data={})
 
@@ -315,9 +285,9 @@ class GitHubCopilotOptionsFlow(config_entries.OptionsFlow):
         # Get current CLI URL from config entry
         current_cli_url = self.config_entry.data.get(CONF_CLI_URL, DEFAULT_CLI_URL)
 
-        # Get current MCP config from config entry
-        current_mcp_config = self.config_entry.data.get(
-            CONF_MCP_CONFIG, DEFAULT_MCP_CONFIG
+        current_connection_token = self.config_entry.data.get(
+            CONF_CONNECTION_TOKEN,
+            DEFAULT_CONNECTION_TOKEN,
         )
 
         # Get current timeout from config entry
@@ -327,12 +297,12 @@ class GitHubCopilotOptionsFlow(config_entries.OptionsFlow):
 
         # Try to fetch the available models dynamically; fall back to the
         # hardcoded list if the API call fails or runtime_data is unavailable.
-        available_models = SUPPORTED_MODELS
+        available_models = [DEFAULT_MODEL]
         try:
             available_models = list(
                 await self.config_entry.runtime_data.client.async_available_models()
             )
-        except (GitHubCopilotApiClientError, AttributeError):
+        except GitHubCopilotApiClientError, AttributeError:
             LOGGER.debug(
                 "Could not fetch dynamic model list; using built-in fallback.",
                 exc_info=True,
@@ -365,11 +335,11 @@ class GitHubCopilotOptionsFlow(config_entries.OptionsFlow):
                         ),
                     ),
                     vol.Optional(
-                        CONF_MCP_CONFIG,
-                        default=current_mcp_config,
+                        CONF_CONNECTION_TOKEN,
+                        default=current_connection_token,
                     ): selector.TextSelector(
                         selector.TextSelectorConfig(
-                            type=selector.TextSelectorType.TEXT,
+                            type=selector.TextSelectorType.PASSWORD,
                         ),
                     ),
                     vol.Optional(
