@@ -11,7 +11,7 @@ from time import monotonic
 from typing import TYPE_CHECKING, Literal, override
 
 from homeassistant.components import conversation
-from homeassistant.const import CONF_PROMPT, MATCH_ALL
+from homeassistant.const import CONF_LLM_HASS_API, CONF_PROMPT, MATCH_ALL
 from homeassistant.helpers import intent
 from homeassistant.util import dt as dt_util
 
@@ -23,11 +23,20 @@ from .api import (
     GitHubCopilotApiClientError,
 )
 from .const import (
+    CONF_MAX_TOOL_CALLS,
     CONF_SESSION_TIMEOUT,
+    DEFAULT_MAX_TOOL_CALLS,
     DEFAULT_PROMPT,
     DEFAULT_SESSION_TIMEOUT,
     DOMAIN,
     LOGGER,
+)
+from .tools import (
+    CopilotToolSpec,
+    HomeAssistantToolDispatcher,
+    add_history_tool,
+    create_copilot_tools,
+    prepare_tool_specs,
 )
 
 if TYPE_CHECKING:
@@ -51,8 +60,10 @@ class ConversationSession:
     """Track one active Home Assistant conversation."""
 
     context: CopilotSessionContext
+    dispatcher: HomeAssistantToolDispatcher
     last_used: float
     prompt_fingerprint: str
+    tool_fingerprint: str
 
 
 async def async_setup_entry(
@@ -79,6 +90,10 @@ class GitHubCopilotConversationEntity(conversation.ConversationEntity):
         self._conversation_locks: dict[str, asyncio.Lock] = {}
         self._map_lock = asyncio.Lock()
         self._attr_extra_state_attributes = {}
+        if config_entry.data.get(CONF_LLM_HASS_API):
+            self._attr_supported_features = (
+                conversation.ConversationEntityFeature.CONTROL
+            )
 
     @property
     @override
@@ -101,7 +116,7 @@ class GitHubCopilotConversationEntity(conversation.ConversationEntity):
         await super().async_will_remove_from_hass()
 
     @override
-    async def _async_handle_message(
+    async def _async_handle_message(  # noqa: PLR0911
         self,
         user_input: conversation.ConversationInput,
         chat_log: conversation.ChatLog,
@@ -110,21 +125,30 @@ class GitHubCopilotConversationEntity(conversation.ConversationEntity):
         try:
             await chat_log.async_provide_llm_data(
                 user_input.as_llm_context(DOMAIN),
-                None,
+                self.entry.data.get(CONF_LLM_HASS_API),
                 self.entry.data.get(CONF_PROMPT, DEFAULT_PROMPT),
                 user_input.extra_system_prompt,
             )
         except conversation.ConverseError as err:
             return err.as_conversation_result()
 
+        add_history_tool(chat_log)
         try:
             stable_prompt = self._stable_system_prompt(chat_log)
+            tool_specs, tool_fingerprint = prepare_tool_specs(chat_log.llm_api)
         except GitHubCopilotApiClientError:
             LOGGER.error("Home Assistant did not produce a valid system prompt")
             return self._error_result(
                 user_input.language,
                 chat_log.conversation_id,
                 "I could not prepare the conversation.",
+            )
+        except TypeError, ValueError:
+            LOGGER.error("Home Assistant provided invalid LLM tool definitions")
+            return self._error_result(
+                user_input.language,
+                chat_log.conversation_id,
+                "I could not prepare Home Assistant controls.",
             )
         prompt_fingerprint = hashlib.sha256(stable_prompt.encode("utf-8")).hexdigest()
         conversation_id = chat_log.conversation_id
@@ -137,19 +161,46 @@ class GitHubCopilotConversationEntity(conversation.ConversationEntity):
                     conversation_id,
                     stable_prompt,
                     prompt_fingerprint,
+                    tool_specs,
+                    tool_fingerprint,
+                )
+                record.dispatcher.bind(
+                    chat_log,
+                    user_input.agent_id,
+                    int(
+                        self.entry.data.get(
+                            CONF_MAX_TOOL_CALLS,
+                            DEFAULT_MAX_TOOL_CALLS,
+                        )
+                    ),
                 )
                 record.last_used = monotonic()
                 turn_context = self._turn_context(
                     chat_log,
                     include_transcript=created,
                 )
-                prompt_result = await self._async_stream_prompt(
-                    chat_log=chat_log,
-                    agent_id=user_input.agent_id,
-                    session_id=record.context.session_id,
-                    prompt=user_input.text,
-                    turn_context=turn_context,
-                )
+                if chat_log.llm_api is None:
+                    prompt_result = await self._async_stream_prompt(
+                        chat_log=chat_log,
+                        agent_id=user_input.agent_id,
+                        session_id=record.context.session_id,
+                        prompt=user_input.text,
+                        turn_context=turn_context,
+                    )
+                else:
+                    prompt_result = (
+                        await self.entry.runtime_data.client.async_send_prompt(
+                            record.context.session_id,
+                            user_input.text,
+                            turn_context=turn_context,
+                        )
+                    )
+                    chat_log.async_add_assistant_content_without_tools(
+                        conversation.AssistantContent(
+                            agent_id=user_input.agent_id,
+                            content=prompt_result.content,
+                        )
+                    )
                 LOGGER.info(
                     (
                         "Home Assistant conversation turn metrics: "
@@ -180,6 +231,9 @@ class GitHubCopilotConversationEntity(conversation.ConversationEntity):
                 if self.hass is not None and self.entity_id is not None:
                     self.async_write_ha_state()
                 record.last_used = monotonic()
+            except asyncio.CancelledError:
+                await self._async_discard_session(conversation_id)
+                raise
             except GitHubCopilotApiClientAuthenticationError:
                 await self._async_discard_session(conversation_id)
                 LOGGER.error("Copilot authentication failed during conversation")
@@ -292,6 +346,8 @@ class GitHubCopilotConversationEntity(conversation.ConversationEntity):
         conversation_id: str,
         system_prompt: str,
         prompt_fingerprint: str,
+        tool_specs: list[CopilotToolSpec],
+        tool_fingerprint: str,
     ) -> tuple[ConversationSession, bool]:
         """Return a compatible SDK session, replacing stale prompt state."""
         now = monotonic()
@@ -303,6 +359,7 @@ class GitHubCopilotConversationEntity(conversation.ConversationEntity):
             if (
                 record
                 and record.prompt_fingerprint == prompt_fingerprint
+                and record.tool_fingerprint == tool_fingerprint
                 and now - record.last_used <= timeout
             ):
                 return record, False
@@ -313,13 +370,17 @@ class GitHubCopilotConversationEntity(conversation.ConversationEntity):
             with suppress(GitHubCopilotApiClientError):
                 await self.entry.runtime_data.client.async_end_session(stale_session_id)
 
+        dispatcher = HomeAssistantToolDispatcher(DEFAULT_MAX_TOOL_CALLS)
         context = await self.entry.runtime_data.client.async_create_session(
-            system_prompt
+            system_prompt,
+            tools=create_copilot_tools(tool_specs, dispatcher),
         )
         record = ConversationSession(
             context=context,
+            dispatcher=dispatcher,
             last_used=now,
             prompt_fingerprint=prompt_fingerprint,
+            tool_fingerprint=tool_fingerprint,
         )
         async with self._map_lock:
             self._sessions[conversation_id] = record

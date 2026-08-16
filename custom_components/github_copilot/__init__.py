@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
-from homeassistant.const import Platform
+from homeassistant.const import CONF_PROMPT, Platform
 from homeassistant.loader import async_get_loaded_integration
 
 from .api import GitHubCopilotApiClient
@@ -23,8 +23,10 @@ from .const import (
     DEFAULT_CLI_URL,
     DEFAULT_CONNECTION_TOKEN,
     DEFAULT_MODEL,
+    DEFAULT_PROMPT,
     DEFAULT_TIMEOUT,
     DOMAIN,
+    LEGACY_DEFAULT_PROMPT,
     LEGACY_MODEL_MAP,
     LOGGER,
 )
@@ -55,10 +57,17 @@ async def async_setup_entry(
             update_interval=timedelta(hours=1),
         )
         cli_url = entry.data.get(CONF_CLI_URL, DEFAULT_CLI_URL).strip()
+        migrated_data = dict(entry.data)
+        stored_prompt = migrated_data.get(CONF_PROMPT)
+        if (
+            isinstance(stored_prompt, str)
+            and stored_prompt.strip() == LEGACY_DEFAULT_PROMPT.strip()
+        ):
+            migrated_data[CONF_PROMPT] = DEFAULT_PROMPT
 
         # Normalize legacy model IDs (e.g. "claude-3.5-sonnet" → "claude-3-5-sonnet")
         # stored in config entries created before the model names were corrected.
-        model = entry.data.get(CONF_MODEL, DEFAULT_MODEL)
+        model = migrated_data.get(CONF_MODEL, DEFAULT_MODEL)
         if model in LEGACY_MODEL_MAP:
             new_model = LEGACY_MODEL_MAP[model]
             LOGGER.info(
@@ -66,11 +75,10 @@ async def async_setup_entry(
                 model,
                 new_model,
             )
-            hass.config_entries.async_update_entry(
-                entry,
-                data={**entry.data, CONF_MODEL: new_model},
-            )
+            migrated_data[CONF_MODEL] = new_model
             model = new_model
+        if migrated_data != entry.data:
+            hass.config_entries.async_update_entry(entry, data=migrated_data)
 
         entry.runtime_data = GitHubCopilotData(
             client=GitHubCopilotApiClient(

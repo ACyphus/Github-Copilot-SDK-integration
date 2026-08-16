@@ -7,8 +7,8 @@ from urllib.parse import urlparse
 
 import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.const import CONF_PROMPT
-from homeassistant.helpers import selector
+from homeassistant.const import CONF_LLM_HASS_API, CONF_PROMPT
+from homeassistant.helpers import llm, selector
 
 from .api import (
     GitHubCopilotApiClient,
@@ -20,11 +20,13 @@ from .const import (
     CONF_API_TOKEN,
     CONF_CLI_URL,
     CONF_CONNECTION_TOKEN,
+    CONF_MAX_TOOL_CALLS,
     CONF_MODEL,
     CONF_SESSION_TIMEOUT,
     CONF_TIMEOUT,
     DEFAULT_CLI_URL,
     DEFAULT_CONNECTION_TOKEN,
+    DEFAULT_MAX_TOOL_CALLS,
     DEFAULT_MODEL,
     DEFAULT_PROMPT,
     DEFAULT_SESSION_TIMEOUT,
@@ -71,6 +73,10 @@ class GitHubCopilotFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_CONNECTION_TOKEN,
                 DEFAULT_CONNECTION_TOKEN,
             ).strip()
+            llm_apis = user_input.get(
+                CONF_LLM_HASS_API,
+                [llm.LLM_API_ASSIST],
+            )
             prompt = user_input.get(CONF_PROMPT, DEFAULT_PROMPT)
             session_timeout = float(
                 user_input.get(CONF_SESSION_TIMEOUT, DEFAULT_SESSION_TIMEOUT)
@@ -133,6 +139,10 @@ class GitHubCopilotFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_MODEL: model,
                         CONF_CLI_URL: cli_url,
                         CONF_CONNECTION_TOKEN: connection_token,
+                        CONF_LLM_HASS_API: llm_apis,
+                        CONF_MAX_TOOL_CALLS: int(
+                            user_input.get(CONF_MAX_TOOL_CALLS, DEFAULT_MAX_TOOL_CALLS)
+                        ),
                         CONF_PROMPT: prompt,
                         CONF_SESSION_TIMEOUT: session_timeout,
                     }
@@ -272,6 +282,10 @@ class GitHubCopilotOptionsFlow(config_entries.OptionsFlow):
                     CONF_MODEL: user_input[CONF_MODEL].strip(),
                     CONF_CLI_URL: cli_url,
                     CONF_CONNECTION_TOKEN: connection_token,
+                    CONF_LLM_HASS_API: user_input.get(CONF_LLM_HASS_API, []),
+                    CONF_MAX_TOOL_CALLS: int(
+                        user_input.get(CONF_MAX_TOOL_CALLS, DEFAULT_MAX_TOOL_CALLS)
+                    ),
                     CONF_PROMPT: user_input.get(CONF_PROMPT, DEFAULT_PROMPT),
                     CONF_SESSION_TIMEOUT: float(
                         user_input.get(
@@ -301,6 +315,23 @@ class GitHubCopilotOptionsFlow(config_entries.OptionsFlow):
         current_connection_token = self.config_entry.data.get(
             CONF_CONNECTION_TOKEN,
             DEFAULT_CONNECTION_TOKEN,
+        )
+        current_llm_apis = self.config_entry.data.get(CONF_LLM_HASS_API, [])
+        if isinstance(current_llm_apis, str):
+            current_llm_apis = [current_llm_apis]
+        available_llm_apis = [
+            selector.SelectOptionDict(label=api.name, value=api.id)
+            for api in llm.async_get_apis(self.hass)
+        ]
+        valid_llm_api_ids = {option["value"] for option in available_llm_apis}
+        current_llm_apis = [
+            api_id for api_id in current_llm_apis if api_id in valid_llm_api_ids
+        ]
+        current_max_tool_calls = int(
+            self.config_entry.data.get(
+                CONF_MAX_TOOL_CALLS,
+                DEFAULT_MAX_TOOL_CALLS,
+            )
         )
         current_prompt = self.config_entry.data.get(CONF_PROMPT, DEFAULT_PROMPT)
         current_session_timeout = float(
@@ -360,6 +391,26 @@ class GitHubCopilotOptionsFlow(config_entries.OptionsFlow):
                     ): selector.TextSelector(
                         selector.TextSelectorConfig(
                             type=selector.TextSelectorType.PASSWORD,
+                        ),
+                    ),
+                    vol.Optional(
+                        CONF_LLM_HASS_API,
+                        default=current_llm_apis,
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=available_llm_apis,
+                            multiple=True,
+                        ),
+                    ),
+                    vol.Optional(
+                        CONF_MAX_TOOL_CALLS,
+                        default=current_max_tool_calls,
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=1,
+                            max=20,
+                            step=1,
+                            mode=selector.NumberSelectorMode.BOX,
                         ),
                     ),
                     vol.Optional(

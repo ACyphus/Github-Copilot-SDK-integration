@@ -98,12 +98,28 @@ SDK clients use `mode="empty"`.
 
 Sessions currently have:
 
-- `available_tools=[]`
+- An exact `available_tools` allowlist containing only translated Home Assistant
+  tools
 - No file hooks
 - No host Git operations
 - No skills
 - No session store
-- A permission callback that rejects every runtime tool
+- A permission callback that rejects every runtime tool not handled by the
+  integration
+
+Home Assistant `llm.Tool` schemas are converted to Copilot SDK custom tools.
+Their handlers call the current `ChatLog` LLM API instance, so Home Assistant
+retains exposure checks, request context, validation, traces, and execution.
+The session dispatcher is rebound on every serialized conversation turn.
+
+The integration appends one custom read-only Home Assistant tool:
+
+- `GetHistory` resolves only entities exposed to the active assistant.
+- Recorder queries run in the recorder executor.
+- Requests are limited to five entities and seven days.
+- Numeric history returns bounded aggregate statistics.
+- Non-numeric history returns state durations and transition counts.
+- Raw state timelines are never returned to Copilot.
 
 Future native Home Assistant tools will be registered explicitly from the
 Home Assistant LLM API.
@@ -117,6 +133,5 @@ Home Assistant LLM API.
 
 ## Planned extensions
 
-1. Translate native Assist LLM tools into SDK custom tools.
-2. Add an AI Task entity with structured output.
-3. Add Home Assistant media attachments as SDK image blobs.
+1. Add an AI Task entity with structured output.
+2. Add Home Assistant media attachments as SDK image blobs.

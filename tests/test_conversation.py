@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.components import conversation
+from homeassistant.const import CONF_LLM_HASS_API
 from homeassistant.core import Context
 from homeassistant.helpers import intent
 
@@ -55,7 +56,7 @@ def _prompt_result(content: str = "Copilot response") -> CopilotPromptResult:
 def _client() -> MagicMock:
     client = MagicMock()
     client.async_create_session = AsyncMock(
-        side_effect=lambda _prompt: CopilotSessionContext(
+        side_effect=lambda _prompt, **_kwargs: CopilotSessionContext(
             session_id=f"sdk-{client.async_create_session.await_count}",
             copilot_session=MagicMock(),
         )
@@ -130,7 +131,11 @@ async def test_success_uses_chat_log_result(hass) -> None:
     assert chat_log.content[-1].content == "Copilot response"
     assert result.conversation_id == "conversation-1"
     assert result.response.speech["plain"]["speech"] == "Copilot response"
-    client.async_create_session.assert_awaited_once_with(DEFAULT_PROMPT.strip())
+    client.async_create_session.assert_awaited_once_with(
+        DEFAULT_PROMPT.strip(),
+        tools=[],
+    )
+    assert entity.supported_features == 0
     assert entity.supports_streaming is True
     assert entity.extra_state_attributes == {
         "model": "gpt-5-mini",
@@ -147,6 +152,32 @@ async def test_success_uses_chat_log_result(hass) -> None:
     turn_context = client.async_send_prompt.await_args.kwargs["turn_context"]
     assert "Current time is " in turn_context
     assert "Prior conversation transcript" not in turn_context
+
+
+@pytest.mark.asyncio
+async def test_control_mode_uses_nonstreaming_final_response(hass) -> None:
+    """Configured HA tools should enable control and preserve ChatLog ordering."""
+    client = _client()
+    entity = GitHubCopilotConversationEntity(
+        _entry(client, {CONF_LLM_HASS_API: ["assist"]})
+    )
+    chat_log = _chat_log(hass, "conversation-1", current_user="Turn it on")
+
+    async def provide(chat_log, *_args, **_kwargs) -> None:
+        chat_log.content[0] = conversation.SystemContent(content=DEFAULT_PROMPT)
+        chat_log.llm_api = SimpleNamespace(tools=[], custom_serializer=None)
+
+    with patch.object(
+        conversation.ChatLog,
+        "async_provide_llm_data",
+        new=provide,
+    ):
+        result = await entity._async_handle_message(_input("Turn it on"), chat_log)
+
+    assert entity.supported_features == conversation.ConversationEntityFeature.CONTROL
+    assert result.response.speech["plain"]["speech"] == "Copilot response"
+    assert client.async_send_prompt.await_args.kwargs.get("on_delta") is None
+    assert chat_log.content[-1].content == "Copilot response"
 
 
 @pytest.mark.asyncio
@@ -238,6 +269,42 @@ async def test_prompt_change_recreates_with_bounded_transcript(hass) -> None:
     assert "Prior conversation transcript" in turn_context
     assert "User: First" in turn_context
     assert "Assistant: First response" in turn_context
+
+
+@pytest.mark.asyncio
+async def test_tool_definition_change_recreates_session(hass) -> None:
+    """Changed Home Assistant tool catalogs should replace the SDK session."""
+    client = _client()
+    entity = GitHubCopilotConversationEntity(
+        _entry(client, {CONF_LLM_HASS_API: ["assist"]})
+    )
+
+    async def provide(chat_log, *_args, **_kwargs) -> None:
+        chat_log.content[0] = conversation.SystemContent(content=DEFAULT_PROMPT)
+        chat_log.llm_api = SimpleNamespace(tools=[], custom_serializer=None)
+
+    with (
+        patch.object(
+            conversation.ChatLog,
+            "async_provide_llm_data",
+            new=provide,
+        ),
+        patch(
+            "custom_components.github_copilot.conversation.prepare_tool_specs",
+            side_effect=[([], "tools-one"), ([], "tools-two")],
+        ),
+    ):
+        await entity._async_handle_message(
+            _input("First"),
+            _chat_log(hass, "conversation-1", current_user="First"),
+        )
+        await entity._async_handle_message(
+            _input("Second"),
+            _chat_log(hass, "conversation-1", current_user="Second"),
+        )
+
+    assert client.async_create_session.await_count == 2
+    client.async_end_session.assert_awaited_once_with("sdk-1")
 
 
 @pytest.mark.asyncio

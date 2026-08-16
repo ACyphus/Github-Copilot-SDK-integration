@@ -138,6 +138,7 @@ async def test_session_disables_ambient_tools() -> None:
         await client.async_create_session("Home Assistant system prompt")
 
     call = sdk_client.create_session.await_args
+    assert call.kwargs["tools"] == []
     assert call.kwargs["available_tools"] == []
     assert call.kwargs["system_message"] == {
         "mode": "replace",

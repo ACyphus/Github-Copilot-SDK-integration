@@ -12,6 +12,7 @@ CONF_API_TOKEN = "api_token"  # noqa: S105
 CONF_MODEL = "model"
 CONF_CLI_URL = "cli_url"
 CONF_CONNECTION_TOKEN = "connection_token"  # noqa: S105
+CONF_MAX_TOOL_CALLS = "max_tool_calls"
 CONF_SESSION_TIMEOUT = "session_timeout"
 CONF_TIMEOUT = "timeout"
 
@@ -19,12 +20,20 @@ CONF_TIMEOUT = "timeout"
 DEFAULT_MODEL = "auto"
 DEFAULT_CLI_URL = ""
 DEFAULT_CONNECTION_TOKEN = ""
-DEFAULT_PROMPT = """You are the household's Home Assistant voice agent.
+LEGACY_DEFAULT_PROMPT = """You are the household's Home Assistant voice agent.
 Answer truthfully in concise, conversational plain text suitable for speech.
 Do not use Markdown or provide URLs unless the user asks for them.
 You cannot control home devices yet. Say so clearly instead of claiming an
 action was completed.
 """
+DEFAULT_PROMPT = """You are the household's Home Assistant voice agent.
+Answer truthfully in concise, conversational plain text suitable for speech.
+Do not use Markdown or provide URLs unless the user asks for them.
+Use only the Home Assistant tools provided in the current conversation.
+Never claim an action completed unless its tool result confirms success.
+Say clearly when a requested entity or action is unavailable.
+"""
+DEFAULT_MAX_TOOL_CALLS = 10
 DEFAULT_SESSION_TIMEOUT = 3600
 DEFAULT_TIMEOUT = 120
 

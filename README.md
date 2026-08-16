@@ -10,14 +10,18 @@ The current foundation provides:
 - Home Assistant-templated conversation instructions.
 - Bounded ChatLog context restoration when SDK sessions are recreated.
 - Streaming model responses through Home Assistant Assist pipelines.
+- Native Home Assistant LLM tools for exposed entity state and control.
+- Tool calls executed through Home Assistant `ChatLog` and request context.
+- Read-only Recorder history summaries for exposed entities.
+- Bounded tool calls with direct unlock, garage opening, and alarm disarm blocked.
 - Content-free latency and token metrics on the conversation entity.
 - Dynamic model discovery after setup.
 - A local SDK runtime option.
 - An authenticated Home Assistant add-on for remote runtime isolation.
 - Default-deny runtime tool permissions.
 
-Native Home Assistant LLM tools, AI Task entities, and camera attachments are
-planned follow-up work. See [`docs/architecture.md`](docs/architecture.md).
+AI Task entities and camera attachments are planned follow-up work. See
+[`docs/architecture.md`](docs/architecture.md).
 
 ## Requirements
 
@@ -40,6 +44,8 @@ Use the integration options to configure:
 
 - Copilot model
 - Conversation instructions
+- Home Assistant LLM APIs
+- Maximum tool calls per turn
 - Response timeout
 - Conversation inactivity timeout
 
@@ -93,9 +99,16 @@ The SDK client runs in `empty` mode. Conversation sessions start with:
 - No skills or session store.
 - A default-deny permission handler.
 
-Future Home Assistant tools will be registered explicitly from the native Assist
-LLM API. Arbitrary MCP configuration is intentionally not supported by the
-bridge.
+Home Assistant tools are registered explicitly from the selected native LLM
+APIs. The SDK receives an exact custom-tool allowlist, while Home Assistant
+retains entity exposure, argument validation, user context, and execution.
+Direct unlocking, garage/gate opening, and alarm disarming are blocked.
+Arbitrary MCP configuration is intentionally not supported by the bridge.
+
+The integration also adds a read-only `GetHistory` tool. It can summarize up to
+seven days for five exposed entities per call, returning numeric min/max,
+time-weighted average and trend data or state durations and change counts. Raw
+Recorder timelines are not sent to Copilot.
 
 Copilot receives a replacement Home Assistant system prompt rather than its
 default coding-agent prompt. Current date and time are supplied per turn so

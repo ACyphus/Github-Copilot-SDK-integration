@@ -14,5 +14,5 @@
   "requirements": [
     "github-copilot-sdk @ https://files.pythonhosted.org/packages/67/ac/175cbb71fe637d963a885248a421040c9d500ea6390ed3b88bc68ecf51ca/github_copilot_sdk-1.0.11-py3-none-any.whl#sha256=6f664c7b843c34ab5a7455f7effb4d339eae75969d2b72f43c2e6214c9c637dc"
   ],
-  "version": "2.1.0"
+  "version": "3.0.0"
 }

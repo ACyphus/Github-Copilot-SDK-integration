@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
+from homeassistant.const import CONF_LLM_HASS_API
 from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -15,8 +16,11 @@ from custom_components.github_copilot.const import (
     CONF_API_TOKEN,
     CONF_CLI_URL,
     CONF_CONNECTION_TOKEN,
+    CONF_MAX_TOOL_CALLS,
     CONF_MODEL,
     CONF_SESSION_TIMEOUT,
+    CONF_TIMEOUT,
+    DEFAULT_MAX_TOOL_CALLS,
     DEFAULT_PROMPT,
     DEFAULT_SESSION_TIMEOUT,
     DOMAIN,
@@ -49,6 +53,8 @@ async def test_remote_flow_omits_github_token(hass) -> None:
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert CONF_API_TOKEN not in result["data"]
     assert result["data"][CONF_CONNECTION_TOKEN] == "bridge-secret"
+    assert result["data"][CONF_LLM_HASS_API] == ["assist"]
+    assert result["data"][CONF_MAX_TOOL_CALLS] == DEFAULT_MAX_TOOL_CALLS
     assert result["data"]["prompt"] == DEFAULT_PROMPT
     assert result["data"][CONF_SESSION_TIMEOUT] == DEFAULT_SESSION_TIMEOUT
 
@@ -102,3 +108,38 @@ async def test_options_form_includes_conversation_settings(hass) -> None:
     schema_keys = {str(key) for key in result["data_schema"].schema}
     assert "prompt" in schema_keys
     assert "session_timeout" in schema_keys
+    assert "llm_hass_api" in schema_keys
+    assert "max_tool_calls" in schema_keys
+
+
+async def test_options_save_native_control_settings(hass) -> None:
+    """Options should persist native API selection and tool-call limits."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_MODEL: "auto",
+            CONF_CLI_URL: "bridge:8000",
+            CONF_CONNECTION_TOKEN: "bridge-secret",
+        },
+    )
+    entry.add_to_hass(hass)
+    flow = GitHubCopilotOptionsFlow()
+    flow.hass = hass
+    flow.handler = entry.entry_id
+
+    result = await flow.async_step_init(
+        {
+            CONF_MODEL: "auto",
+            CONF_CLI_URL: "bridge:8000",
+            CONF_CONNECTION_TOKEN: "bridge-secret",
+            CONF_LLM_HASS_API: ["assist"],
+            CONF_MAX_TOOL_CALLS: 7,
+            "prompt": DEFAULT_PROMPT,
+            CONF_SESSION_TIMEOUT: DEFAULT_SESSION_TIMEOUT,
+            CONF_TIMEOUT: 120,
+        }
+    )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.data[CONF_LLM_HASS_API] == ["assist"]
+    assert entry.data[CONF_MAX_TOOL_CALLS] == 7

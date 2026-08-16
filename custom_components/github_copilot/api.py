@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from datetime import timedelta
 
     import copilot
+    from copilot import Tool
 
 try:
     from copilot import CopilotClient, RuntimeConnection
@@ -134,14 +135,18 @@ class GitHubCopilotApiClient:
     async def async_create_session(
         self,
         system_prompt: str = _DEFAULT_SYSTEM_PROMPT,
+        *,
+        tools: Sequence[Tool] = (),
     ) -> CopilotSessionContext:
         """Create a tool-isolated Copilot SDK session."""
         async with self._session_lock:
             client = await self._ensure_client()
+            session_tools = list(tools)
             try:
                 session = await client.create_session(
                     model=self._model,
-                    available_tools=[],
+                    tools=session_tools,
+                    available_tools=[tool.name for tool in session_tools],
                     on_permission_request=_deny_runtime_tool,
                     enable_file_hooks=False,
                     enable_host_git_operations=False,
