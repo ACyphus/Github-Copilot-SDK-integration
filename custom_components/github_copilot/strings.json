@@ -6,6 +6,7 @@
                 "data": {
                     "api_token": "GitHub Token",
                     "model": "Model",
+                    "ai_task_model": "AI Task model",
                     "cli_url": "Copilot Bridge URL",
                     "connection_token": "Bridge Connection Token",
                     "llm_hass_api": "Home Assistant LLM APIs",
@@ -40,14 +41,18 @@
             "init": {
                 "data": {
                     "model": "Model",
+                    "ai_task_model": "AI Task model",
                     "cli_url": "Copilot Bridge URL",
                     "connection_token": "Bridge Connection Token",
+                    "llm_hass_api": "Home Assistant LLM APIs",
+                    "max_tool_calls": "Maximum tool calls per turn",
                     "prompt": "Conversation instructions",
                     "session_timeout": "Conversation inactivity timeout",
                     "timeout": "Response timeout"
                 },
                 "data_description": {
                     "model": "The AI model to use for conversations",
+                    "ai_task_model": "The AI model to use for stateless AI Tasks.",
                     "cli_url": "Bridge hostname and port. Leave empty to use the SDK's bundled runtime.",
                     "connection_token": "Shared secret configured in the bridge add-on.",
                     "llm_hass_api": "APIs whose Home Assistant tools Copilot may use. Leave empty for conversation-only mode.",

@@ -9,6 +9,7 @@ ATTRIBUTION = "Powered by GitHub Copilot SDK"
 
 # Configuration constants
 CONF_API_TOKEN = "api_token"  # noqa: S105
+CONF_AI_TASK_MODEL = "ai_task_model"
 CONF_MODEL = "model"
 CONF_CLI_URL = "cli_url"
 CONF_CONNECTION_TOKEN = "connection_token"  # noqa: S105

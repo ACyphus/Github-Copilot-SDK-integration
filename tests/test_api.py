@@ -11,6 +11,7 @@ import pytest
 from copilot.session_events import AssistantMessageDeltaData, AssistantUsageData
 
 from custom_components.github_copilot.api import (
+    CopilotExecutionResult,
     GitHubCopilotApiClient,
     GitHubCopilotApiClientAuthenticationError,
 )
@@ -155,6 +156,27 @@ async def test_session_disables_ambient_tools() -> None:
 
 
 @pytest.mark.asyncio
+async def test_session_accepts_model_override() -> None:
+    """AI Tasks should be able to select a model per session."""
+    sdk_client = _mock_sdk_client()
+    session = MagicMock(session_id="session-id")
+    sdk_client.create_session = AsyncMock(return_value=session)
+
+    with patch(
+        "custom_components.github_copilot.api.CopilotClient",
+        return_value=sdk_client,
+    ):
+        client = GitHubCopilotApiClient(
+            model="conversation-model",
+            github_token="github-token",
+        )
+        context = await client.async_create_session(model="task-model")
+
+    assert sdk_client.create_session.await_args.kwargs["model"] == "task-model"
+    assert context.model == "task-model"
+
+
+@pytest.mark.asyncio
 async def test_session_cleanup_disconnects_and_deletes() -> None:
     """Session cleanup should release both client and runtime state."""
     sdk_client = _mock_sdk_client()
@@ -209,6 +231,31 @@ async def test_turn_context_is_prepended_to_prompt() -> None:
         timeout=120.0,
     )
     sdk_session.on.return_value.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_terminal_prompt_allows_no_assistant_content() -> None:
+    """Terminal structured tools may finish without a final message."""
+    sdk_client = _mock_sdk_client()
+    sdk_session = MagicMock(session_id="session-id")
+    sdk_session.on.return_value = MagicMock()
+    sdk_session.send_and_wait = AsyncMock(return_value=None)
+    sdk_client.create_session = AsyncMock(return_value=sdk_session)
+
+    with patch(
+        "custom_components.github_copilot.api.CopilotClient",
+        return_value=sdk_client,
+    ):
+        client = GitHubCopilotApiClient(github_token="github-token")
+        context = await client.async_create_session()
+        result = await client.async_execute_prompt(
+            context.session_id,
+            "Submit the result",
+        )
+
+    assert isinstance(result, CopilotExecutionResult)
+    assert result.content is None
+    assert result.metrics.response_characters == 0
 
 
 @pytest.mark.asyncio

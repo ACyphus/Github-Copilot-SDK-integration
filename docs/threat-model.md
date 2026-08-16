@@ -50,6 +50,11 @@ Cloud boundary receiving prompts and explicitly attached data.
 | Tool loop consumes unbounded time or actions | Per-turn call cap, per-tool timeout, overall request timeout, no automatic state-changing retry |
 | History request leaks unexposed state | `GetHistory` resolves through the active assistant's exposure policy |
 | Recorder history creates excessive prompt or query size | Seven-day, five-entity bounds and aggregate-only results |
+| AI Task gains device control | Task sessions use an empty or submit-only exact tool allowlist |
+| Structured prose bypasses validation | Structured results are accepted only through `submit_result` and the original HA schema |
+| Invalid structured output loops indefinitely | One repair attempt; the second invalid submission forces terminal failure |
+| Task history leaks between automations | Every AI Task uses a new short-lived SDK session |
+| Task attachments leave the network before controls exist | Phase 4 does not advertise attachment support |
 
 ## Required future controls
 

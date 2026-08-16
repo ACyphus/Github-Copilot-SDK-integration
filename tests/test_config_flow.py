@@ -13,6 +13,7 @@ from custom_components.github_copilot.config_flow import (
     GitHubCopilotOptionsFlow,
 )
 from custom_components.github_copilot.const import (
+    CONF_AI_TASK_MODEL,
     CONF_API_TOKEN,
     CONF_CLI_URL,
     CONF_CONNECTION_TOKEN,
@@ -53,6 +54,7 @@ async def test_remote_flow_omits_github_token(hass) -> None:
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert CONF_API_TOKEN not in result["data"]
     assert result["data"][CONF_CONNECTION_TOKEN] == "bridge-secret"
+    assert result["data"][CONF_AI_TASK_MODEL] == "auto"
     assert result["data"][CONF_LLM_HASS_API] == ["assist"]
     assert result["data"][CONF_MAX_TOOL_CALLS] == DEFAULT_MAX_TOOL_CALLS
     assert result["data"]["prompt"] == DEFAULT_PROMPT
@@ -107,6 +109,7 @@ async def test_options_form_includes_conversation_settings(hass) -> None:
     assert result["type"] is FlowResultType.FORM
     schema_keys = {str(key) for key in result["data_schema"].schema}
     assert "prompt" in schema_keys
+    assert "ai_task_model" in schema_keys
     assert "session_timeout" in schema_keys
     assert "llm_hass_api" in schema_keys
     assert "max_tool_calls" in schema_keys
@@ -118,6 +121,7 @@ async def test_options_save_native_control_settings(hass) -> None:
         domain=DOMAIN,
         data={
             CONF_MODEL: "auto",
+            CONF_AI_TASK_MODEL: "gpt-5-mini",
             CONF_CLI_URL: "bridge:8000",
             CONF_CONNECTION_TOKEN: "bridge-secret",
         },
@@ -143,3 +147,4 @@ async def test_options_save_native_control_settings(hass) -> None:
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert entry.data[CONF_LLM_HASS_API] == ["assist"]
     assert entry.data[CONF_MAX_TOOL_CALLS] == 7
+    assert entry.data[CONF_AI_TASK_MODEL] == "gpt-5-mini"

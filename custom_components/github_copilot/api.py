@@ -54,6 +54,7 @@ class CopilotSessionContext:
 
     session_id: str
     copilot_session: copilot.CopilotSession
+    model: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +77,14 @@ class CopilotPromptResult:
     """Return Copilot content with timing metadata."""
 
     content: str
+    metrics: CopilotTurnMetrics
+
+
+@dataclass(frozen=True, slots=True)
+class CopilotExecutionResult:
+    """Return optional Copilot content with timing metadata."""
+
+    content: str | None
     metrics: CopilotTurnMetrics
 
 
@@ -136,15 +145,17 @@ class GitHubCopilotApiClient:
         self,
         system_prompt: str = _DEFAULT_SYSTEM_PROMPT,
         *,
+        model: str | None = None,
         tools: Sequence[Tool] = (),
     ) -> CopilotSessionContext:
         """Create a tool-isolated Copilot SDK session."""
         async with self._session_lock:
             client = await self._ensure_client()
             session_tools = list(tools)
+            selected_model = model or self._model
             try:
                 session = await client.create_session(
-                    model=self._model,
+                    model=selected_model,
                     tools=session_tools,
                     available_tools=[tool.name for tool in session_tools],
                     on_permission_request=_deny_runtime_tool,
@@ -162,7 +173,7 @@ class GitHubCopilotApiClient:
                     },
                 )
             except TimeoutError as exception:
-                msg = f"Timed out creating a Copilot session for '{self._model}'."
+                msg = f"Timed out creating a Copilot session for '{selected_model}'."
                 raise GitHubCopilotApiClientCommunicationError(msg) from exception
             except ValueError as exception:
                 msg = f"Invalid Copilot session configuration: {exception}"
@@ -174,6 +185,7 @@ class GitHubCopilotApiClient:
             context = CopilotSessionContext(
                 session_id=session.session_id,
                 copilot_session=session,
+                model=selected_model,
             )
             self._sessions[context.session_id] = context
             return context
@@ -222,6 +234,26 @@ class GitHubCopilotApiClient:
         on_delta: Callable[[str], None] | None = None,
     ) -> CopilotPromptResult:
         """Send a text prompt to an existing session."""
+        result = await self.async_execute_prompt(
+            session_id,
+            prompt,
+            turn_context=turn_context,
+            on_delta=on_delta,
+        )
+        if not result.content:
+            msg = "Copilot returned an empty response."
+            raise GitHubCopilotApiClientError(msg)
+        return CopilotPromptResult(content=result.content, metrics=result.metrics)
+
+    async def async_execute_prompt(
+        self,
+        session_id: str,
+        prompt: str,
+        *,
+        turn_context: str = "",
+        on_delta: Callable[[str], None] | None = None,
+    ) -> CopilotExecutionResult:
+        """Send a prompt and allow terminal-tool completion without text."""
         if not prompt.strip():
             msg = "Prompt cannot be empty."
             raise GitHubCopilotApiClientError(msg)
@@ -278,9 +310,6 @@ class GitHubCopilotApiClient:
             unsubscribe()
 
         content = getattr(getattr(event, "data", None), "content", None)
-        if not content:
-            msg = "Copilot returned an empty response."
-            raise GitHubCopilotApiClientError(msg)
 
         metrics = CopilotTurnMetrics(
             request_duration_ms=request_duration_ms,
@@ -295,8 +324,8 @@ class GitHubCopilotApiClient:
             input_tokens=usage.input_tokens if usage else None,
             output_tokens=usage.output_tokens if usage else None,
             input_characters=len(message),
-            response_characters=len(content),
-            model=usage.model if usage else self._model,
+            response_characters=len(content or ""),
+            model=usage.model if usage else context.model or self._model,
         )
         _LOGGER.info(
             (
@@ -314,7 +343,7 @@ class GitHubCopilotApiClient:
             metrics.input_characters,
             metrics.response_characters,
         )
-        return CopilotPromptResult(content=content, metrics=metrics)
+        return CopilotExecutionResult(content=content, metrics=metrics)
 
     async def async_close(self) -> None:
         """Close all sessions and stop the SDK client."""

@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from .data import GitHubCopilotConfigEntry
 
 PLATFORMS: list[Platform] = [
+    Platform.AI_TASK,
     Platform.CONVERSATION,
 ]
 

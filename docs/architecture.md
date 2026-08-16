@@ -8,6 +8,7 @@ Home Assistant
   +-- GitHub Copilot custom integration
         |
         +-- Conversation entity
+        +-- AI Task entity
         +-- Official Python Copilot SDK
         +-- Empty-mode sessions
         +-- Default-deny permission handler
@@ -56,6 +57,28 @@ requests.
 Per-conversation locks serialize overlapping turns while allowing separate
 conversations to run concurrently. Inactive SDK sessions expire using monotonic
 time.
+
+## AI Task handling
+
+The AI Task entity supports `GENERATE_DATA` only. Every task creates a fresh SDK
+session and deletes it after completion.
+
+Plain-text tasks:
+
+- Use the independently selected AI Task model.
+- Receive no tools.
+- Add the final assistant text to the ephemeral Home Assistant ChatLog.
+
+Structured tasks:
+
+- Convert the Home Assistant Voluptuous structure to JSON Schema.
+- Register only a terminal `submit_result` custom tool.
+- Validate submitted arguments with the original Home Assistant schema.
+- Return the validated native data rather than parsing assistant prose.
+- Allow one validation repair before failing explicitly.
+
+AI Tasks do not receive native Assist tools or `GetHistory`. Automations gather
+deterministic context before invoking the task.
 
 Each completed turn emits content-free INFO metrics for latency analysis:
 
@@ -133,5 +156,4 @@ Home Assistant LLM API.
 
 ## Planned extensions
 
-1. Add an AI Task entity with structured output.
-2. Add Home Assistant media attachments as SDK image blobs.
+1. Add Home Assistant media attachments as SDK image blobs.

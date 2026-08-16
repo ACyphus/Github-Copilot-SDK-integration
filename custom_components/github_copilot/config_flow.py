@@ -17,6 +17,7 @@ from .api import (
     GitHubCopilotApiClientError,
 )
 from .const import (
+    CONF_AI_TASK_MODEL,
     CONF_API_TOKEN,
     CONF_CLI_URL,
     CONF_CONNECTION_TOKEN,
@@ -67,6 +68,7 @@ class GitHubCopilotFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         _errors = {}
         if user_input is not None:
             model = user_input.get(CONF_MODEL, DEFAULT_MODEL).strip()
+            ai_task_model = user_input.get(CONF_AI_TASK_MODEL, model).strip()
             cli_url = user_input.get(CONF_CLI_URL, DEFAULT_CLI_URL).strip()
             api_token = user_input.get(CONF_API_TOKEN, "").strip()
             connection_token = user_input.get(
@@ -137,6 +139,7 @@ class GitHubCopilotFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                     data = {
                         **user_input,
                         CONF_MODEL: model,
+                        CONF_AI_TASK_MODEL: ai_task_model,
                         CONF_CLI_URL: cli_url,
                         CONF_CONNECTION_TOKEN: connection_token,
                         CONF_LLM_HASS_API: llm_apis,
@@ -280,6 +283,13 @@ class GitHubCopilotOptionsFlow(config_entries.OptionsFlow):
                 data = {
                     **self.config_entry.data,
                     CONF_MODEL: user_input[CONF_MODEL].strip(),
+                    CONF_AI_TASK_MODEL: user_input.get(
+                        CONF_AI_TASK_MODEL,
+                        self.config_entry.data.get(
+                            CONF_AI_TASK_MODEL,
+                            user_input[CONF_MODEL],
+                        ),
+                    ).strip(),
                     CONF_CLI_URL: cli_url,
                     CONF_CONNECTION_TOKEN: connection_token,
                     CONF_LLM_HASS_API: user_input.get(CONF_LLM_HASS_API, []),
@@ -308,6 +318,14 @@ class GitHubCopilotOptionsFlow(config_entries.OptionsFlow):
         # Get current model from config entry, normalizing any legacy IDs.
         current_model = self.config_entry.data.get(CONF_MODEL, DEFAULT_MODEL)
         current_model = LEGACY_MODEL_MAP.get(current_model, current_model)
+        current_ai_task_model = self.config_entry.data.get(
+            CONF_AI_TASK_MODEL,
+            current_model,
+        )
+        current_ai_task_model = LEGACY_MODEL_MAP.get(
+            current_ai_task_model,
+            current_ai_task_model,
+        )
 
         # Get current CLI URL from config entry
         current_cli_url = self.config_entry.data.get(CONF_CLI_URL, DEFAULT_CLI_URL)
@@ -363,6 +381,8 @@ class GitHubCopilotOptionsFlow(config_entries.OptionsFlow):
         # the dropdown does not show a blank/invalid selection.
         if current_model not in available_models:
             available_models = [current_model, *available_models]
+        if current_ai_task_model not in available_models:
+            available_models = [current_ai_task_model, *available_models]
 
         return self.async_show_form(
             step_id="init",
@@ -371,6 +391,15 @@ class GitHubCopilotOptionsFlow(config_entries.OptionsFlow):
                     vol.Required(
                         CONF_MODEL,
                         default=current_model,
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=available_models,
+                            mode=selector.SelectSelectorMode.DROPDOWN,
+                        ),
+                    ),
+                    vol.Required(
+                        CONF_AI_TASK_MODEL,
+                        default=current_ai_task_model,
                     ): selector.SelectSelector(
                         selector.SelectSelectorConfig(
                             options=available_models,

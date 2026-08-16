@@ -8,11 +8,11 @@ official GitHub Copilot SDK and an optional Home Assistant bridge add-on.
 Current platforms:
 
 - `conversation`
+- `ai_task`
 
 Planned platforms:
 
-- Native Home Assistant LLM tools
-- `ai_task`
+- Image attachments for AI Tasks
 
 ## Supported foundation
 
@@ -53,6 +53,7 @@ Read:
 - Follow Home Assistant patterns.
 - Keep logs and errors free of credentials, prompts, and response content.
 - Never weaken the default-deny tool policy.
+- AI Task structured output must be validated by Home Assistant schemas.
 - Do not add shell, filesystem, MCP, skills, or session-store access without an
   explicit architecture and security decision.
 - Update `addon/CHANGELOG.md` when changing the add-on.

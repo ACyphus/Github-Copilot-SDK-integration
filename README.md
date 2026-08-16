@@ -13,6 +13,8 @@ The current foundation provides:
 - Native Home Assistant LLM tools for exposed entity state and control.
 - Tool calls executed through Home Assistant `ChatLog` and request context.
 - Read-only Recorder history summaries for exposed entities.
+- Stateless Home Assistant AI Tasks with plain-text generation.
+- Schema-validated structured AI Task output through a terminal result tool.
 - Bounded tool calls with direct unlock, garage opening, and alarm disarm blocked.
 - Content-free latency and token metrics on the conversation entity.
 - Dynamic model discovery after setup.
@@ -20,7 +22,7 @@ The current foundation provides:
 - An authenticated Home Assistant add-on for remote runtime isolation.
 - Default-deny runtime tool permissions.
 
-AI Task entities and camera attachments are planned follow-up work. See
+Camera attachments are planned follow-up work. See
 [`docs/architecture.md`](docs/architecture.md).
 
 ## Requirements
@@ -43,6 +45,7 @@ Restart Home Assistant, then add **GitHub Copilot** from
 Use the integration options to configure:
 
 - Copilot model
+- AI Task model
 - Conversation instructions
 - Home Assistant LLM APIs
 - Maximum tool calls per turn
@@ -109,6 +112,30 @@ The integration also adds a read-only `GetHistory` tool. It can summarize up to
 seven days for five exposed entities per call, returning numeric min/max,
 time-weighted average and trend data or state durations and change counts. Raw
 Recorder timelines are not sent to Copilot.
+
+## AI Tasks
+
+The integration registers `ai_task.github_copilot` with data-generation support.
+AI Tasks are stateless and receive no conversation, control, history, shell,
+filesystem, MCP, skill, or session-store tools.
+
+Plain-text example:
+
+```yaml
+action: ai_task.generate_data
+data:
+  entity_id: ai_task.github_copilot
+  task_name: household_summary
+  instructions: >-
+    Summarize these deterministic inputs in one sentence:
+    garage temperature 82.3 F; garage door closed.
+response_variable: result
+```
+
+When a Home Assistant structure is supplied, Copilot must call a terminal
+`submit_result` tool. Home Assistant validates the submitted fields against the
+original schema. One invalid submission may be repaired; a second invalid
+submission fails explicitly. Phase 4 does not support attachments.
 
 Copilot receives a replacement Home Assistant system prompt rather than its
 default coding-agent prompt. Current date and time are supplied per turn so
