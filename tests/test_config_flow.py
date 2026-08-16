@@ -15,8 +15,12 @@ from custom_components.github_copilot.config_flow import (
 from custom_components.github_copilot.const import (
     CONF_AI_TASK_MODEL,
     CONF_API_TOKEN,
+    CONF_ATTACHMENTS_ENABLED,
     CONF_CLI_URL,
     CONF_CONNECTION_TOKEN,
+    CONF_MAX_ATTACHMENT_BYTES,
+    CONF_MAX_ATTACHMENTS,
+    CONF_MAX_IMAGE_DIMENSION,
     CONF_MAX_TOOL_CALLS,
     CONF_MODEL,
     CONF_SESSION_TIMEOUT,
@@ -110,6 +114,10 @@ async def test_options_form_includes_conversation_settings(hass) -> None:
     schema_keys = {str(key) for key in result["data_schema"].schema}
     assert "prompt" in schema_keys
     assert "ai_task_model" in schema_keys
+    assert "attachments_enabled" in schema_keys
+    assert "max_attachment_bytes" in schema_keys
+    assert "max_attachments" in schema_keys
+    assert "max_image_dimension" in schema_keys
     assert "session_timeout" in schema_keys
     assert "llm_hass_api" in schema_keys
     assert "max_tool_calls" in schema_keys
@@ -124,6 +132,10 @@ async def test_options_save_native_control_settings(hass) -> None:
             CONF_AI_TASK_MODEL: "gpt-5-mini",
             CONF_CLI_URL: "bridge:8000",
             CONF_CONNECTION_TOKEN: "bridge-secret",
+            CONF_ATTACHMENTS_ENABLED: True,
+            CONF_MAX_ATTACHMENTS: 2,
+            CONF_MAX_ATTACHMENT_BYTES: 6 * 1024 * 1024,
+            CONF_MAX_IMAGE_DIMENSION: 1536,
         },
     )
     entry.add_to_hass(hass)
@@ -148,3 +160,7 @@ async def test_options_save_native_control_settings(hass) -> None:
     assert entry.data[CONF_LLM_HASS_API] == ["assist"]
     assert entry.data[CONF_MAX_TOOL_CALLS] == 7
     assert entry.data[CONF_AI_TASK_MODEL] == "gpt-5-mini"
+    assert entry.data[CONF_ATTACHMENTS_ENABLED] is True
+    assert entry.data[CONF_MAX_ATTACHMENTS] == 2
+    assert entry.data[CONF_MAX_ATTACHMENT_BYTES] == 6 * 1024 * 1024
+    assert entry.data[CONF_MAX_IMAGE_DIMENSION] == 1536

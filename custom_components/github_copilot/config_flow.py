@@ -19,14 +19,22 @@ from .api import (
 from .const import (
     CONF_AI_TASK_MODEL,
     CONF_API_TOKEN,
+    CONF_ATTACHMENTS_ENABLED,
     CONF_CLI_URL,
     CONF_CONNECTION_TOKEN,
+    CONF_MAX_ATTACHMENT_BYTES,
+    CONF_MAX_ATTACHMENTS,
+    CONF_MAX_IMAGE_DIMENSION,
     CONF_MAX_TOOL_CALLS,
     CONF_MODEL,
     CONF_SESSION_TIMEOUT,
     CONF_TIMEOUT,
+    DEFAULT_ATTACHMENTS_ENABLED,
     DEFAULT_CLI_URL,
     DEFAULT_CONNECTION_TOKEN,
+    DEFAULT_MAX_ATTACHMENT_BYTES,
+    DEFAULT_MAX_ATTACHMENTS,
+    DEFAULT_MAX_IMAGE_DIMENSION,
     DEFAULT_MAX_TOOL_CALLS,
     DEFAULT_MODEL,
     DEFAULT_PROMPT,
@@ -292,6 +300,40 @@ class GitHubCopilotOptionsFlow(config_entries.OptionsFlow):
                     ).strip(),
                     CONF_CLI_URL: cli_url,
                     CONF_CONNECTION_TOKEN: connection_token,
+                    CONF_ATTACHMENTS_ENABLED: user_input.get(
+                        CONF_ATTACHMENTS_ENABLED,
+                        self.config_entry.data.get(
+                            CONF_ATTACHMENTS_ENABLED,
+                            DEFAULT_ATTACHMENTS_ENABLED,
+                        ),
+                    ),
+                    CONF_MAX_ATTACHMENTS: int(
+                        user_input.get(
+                            CONF_MAX_ATTACHMENTS,
+                            self.config_entry.data.get(
+                                CONF_MAX_ATTACHMENTS,
+                                DEFAULT_MAX_ATTACHMENTS,
+                            ),
+                        )
+                    ),
+                    CONF_MAX_ATTACHMENT_BYTES: int(
+                        user_input.get(
+                            CONF_MAX_ATTACHMENT_BYTES,
+                            self.config_entry.data.get(
+                                CONF_MAX_ATTACHMENT_BYTES,
+                                DEFAULT_MAX_ATTACHMENT_BYTES,
+                            ),
+                        )
+                    ),
+                    CONF_MAX_IMAGE_DIMENSION: int(
+                        user_input.get(
+                            CONF_MAX_IMAGE_DIMENSION,
+                            self.config_entry.data.get(
+                                CONF_MAX_IMAGE_DIMENSION,
+                                DEFAULT_MAX_IMAGE_DIMENSION,
+                            ),
+                        )
+                    ),
                     CONF_LLM_HASS_API: user_input.get(CONF_LLM_HASS_API, []),
                     CONF_MAX_TOOL_CALLS: int(
                         user_input.get(CONF_MAX_TOOL_CALLS, DEFAULT_MAX_TOOL_CALLS)
@@ -349,6 +391,30 @@ class GitHubCopilotOptionsFlow(config_entries.OptionsFlow):
             self.config_entry.data.get(
                 CONF_MAX_TOOL_CALLS,
                 DEFAULT_MAX_TOOL_CALLS,
+            )
+        )
+        current_attachments_enabled = bool(
+            self.config_entry.data.get(
+                CONF_ATTACHMENTS_ENABLED,
+                DEFAULT_ATTACHMENTS_ENABLED,
+            )
+        )
+        current_max_attachments = int(
+            self.config_entry.data.get(
+                CONF_MAX_ATTACHMENTS,
+                DEFAULT_MAX_ATTACHMENTS,
+            )
+        )
+        current_max_attachment_bytes = int(
+            self.config_entry.data.get(
+                CONF_MAX_ATTACHMENT_BYTES,
+                DEFAULT_MAX_ATTACHMENT_BYTES,
+            )
+        )
+        current_max_image_dimension = int(
+            self.config_entry.data.get(
+                CONF_MAX_IMAGE_DIMENSION,
+                DEFAULT_MAX_IMAGE_DIMENSION,
             )
         )
         current_prompt = self.config_entry.data.get(CONF_PROMPT, DEFAULT_PROMPT)
@@ -420,6 +486,45 @@ class GitHubCopilotOptionsFlow(config_entries.OptionsFlow):
                     ): selector.TextSelector(
                         selector.TextSelectorConfig(
                             type=selector.TextSelectorType.PASSWORD,
+                        ),
+                    ),
+                    vol.Optional(
+                        CONF_ATTACHMENTS_ENABLED,
+                        default=current_attachments_enabled,
+                    ): selector.BooleanSelector(),
+                    vol.Optional(
+                        CONF_MAX_ATTACHMENTS,
+                        default=current_max_attachments,
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=1,
+                            max=4,
+                            step=1,
+                            mode=selector.NumberSelectorMode.BOX,
+                        ),
+                    ),
+                    vol.Optional(
+                        CONF_MAX_ATTACHMENT_BYTES,
+                        default=current_max_attachment_bytes,
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=1 * 1024 * 1024,
+                            max=20 * 1024 * 1024,
+                            step=1 * 1024 * 1024,
+                            unit_of_measurement="B",
+                            mode=selector.NumberSelectorMode.BOX,
+                        ),
+                    ),
+                    vol.Optional(
+                        CONF_MAX_IMAGE_DIMENSION,
+                        default=current_max_image_dimension,
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=512,
+                            max=4096,
+                            step=256,
+                            unit_of_measurement="px",
+                            mode=selector.NumberSelectorMode.BOX,
                         ),
                     ),
                     vol.Optional(

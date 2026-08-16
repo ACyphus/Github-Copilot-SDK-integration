@@ -20,6 +20,7 @@ from .api import (
     GitHubCopilotApiClientCommunicationError,
     GitHubCopilotApiClientError,
 )
+from .attachments import PreparedAttachments, async_prepare_attachments
 from .const import CONF_AI_TASK_MODEL, CONF_MODEL, DEFAULT_MODEL, LOGGER
 
 if TYPE_CHECKING:
@@ -41,6 +42,13 @@ the task instructions. Submit the final result by calling submit_result exactly
 once. Do not put the structured result in assistant prose. Include every
 required field, omit fields absent from the schema, and use validation feedback
 to repair one invalid submission.
+""".strip()
+
+_VISION_SYSTEM_PROMPT = """
+Analyze only the explicitly attached still image or images. Distinguish visible
+evidence from uncertainty. Do not claim continuous video awareness. Do not
+identify people, infer identity, emotion, protected traits, or threat level.
+Do not invent details that are not visibly supported.
 """.strip()
 
 
@@ -136,7 +144,10 @@ class GitHubCopilotAITaskEntity(ai_task.AITaskEntity):
 
     _attr_has_entity_name = True
     _attr_name = "GitHub Copilot"
-    _attr_supported_features = ai_task.AITaskEntityFeature.GENERATE_DATA
+    _attr_supported_features = (
+        ai_task.AITaskEntityFeature.GENERATE_DATA
+        | ai_task.AITaskEntityFeature.SUPPORT_ATTACHMENTS
+    )
 
     def __init__(self, config_entry: GitHubCopilotConfigEntry) -> None:
         """Initialize the AI Task entity."""
@@ -151,9 +162,6 @@ class GitHubCopilotAITaskEntity(ai_task.AITaskEntity):
         chat_log: conversation.ChatLog,
     ) -> ai_task.GenDataTaskResult:
         """Generate plain text or schema-validated data."""
-        if task.attachments:
-            msg = "GitHub Copilot AI Tasks do not support attachments yet."
-            raise HomeAssistantError(msg)
         if chat_log.llm_api is not None:
             msg = "GitHub Copilot AI Tasks do not accept Home Assistant tools."
             raise HomeAssistantError(msg)
@@ -166,6 +174,25 @@ class GitHubCopilotAITaskEntity(ai_task.AITaskEntity):
             CONF_AI_TASK_MODEL,
             self.entry.data.get(CONF_MODEL, DEFAULT_MODEL),
         )
+        prepared = PreparedAttachments((), 0, 0)
+        if task.attachments:
+            try:
+                model_info = await self.entry.runtime_data.client.async_get_model_info(
+                    model
+                )
+            except GitHubCopilotApiClientError as err:
+                msg = "The configured AI Task model is unavailable for vision."
+                raise HomeAssistantError(msg) from err
+            prepared = await async_prepare_attachments(
+                self.hass,
+                task.attachments,
+                model_info,
+                self.entry.data,
+            )
+            system_prompt = (
+                f"{system_prompt}\n{_VISION_SYSTEM_PROMPT}\n"
+                f"{len(prepared.blobs)} image attachment(s) are supplied."
+            )
         holder: StructuredResultHolder | None = None
         tools: list[Tool] = []
         if task.structure is not None:
@@ -204,6 +231,7 @@ class GitHubCopilotAITaskEntity(ai_task.AITaskEntity):
                 prompt_result = await self.entry.runtime_data.client.async_send_prompt(
                     session.session_id,
                     user_prompt,
+                    attachments=prepared.blobs,
                 )
                 chat_log.async_add_assistant_content_without_tools(
                     conversation.AssistantContent(
@@ -211,7 +239,7 @@ class GitHubCopilotAITaskEntity(ai_task.AITaskEntity):
                         content=prompt_result.content,
                     )
                 )
-                self._set_metrics(prompt_result)
+                self._set_metrics(prompt_result, prepared)
                 return ai_task.GenDataTaskResult(
                     conversation_id=chat_log.conversation_id,
                     data=prompt_result.content,
@@ -221,9 +249,10 @@ class GitHubCopilotAITaskEntity(ai_task.AITaskEntity):
                 await self.entry.runtime_data.client.async_execute_prompt(
                     session.session_id,
                     user_prompt,
+                    attachments=prepared.blobs,
                 )
             )
-            self._set_metrics(execution_result)
+            self._set_metrics(execution_result, prepared)
             if holder.value is not None:
                 return ai_task.GenDataTaskResult(
                     conversation_id=chat_log.conversation_id,
@@ -255,6 +284,7 @@ class GitHubCopilotAITaskEntity(ai_task.AITaskEntity):
     def _set_metrics(
         self,
         result: CopilotExecutionResult | CopilotPromptResult,
+        attachments: PreparedAttachments,
     ) -> None:
         """Publish sanitized metrics for the most recent task."""
         metrics = result.metrics
@@ -267,6 +297,9 @@ class GitHubCopilotAITaskEntity(ai_task.AITaskEntity):
             "output_tokens": metrics.output_tokens,
             "input_characters": metrics.input_characters,
             "response_characters": metrics.response_characters,
+            "attachment_count": len(attachments.blobs),
+            "attachment_original_bytes": attachments.original_bytes,
+            "attachment_normalized_bytes": attachments.normalized_bytes,
         }
         if self.hass is not None and self.entity_id is not None:
             self.async_write_ha_state()

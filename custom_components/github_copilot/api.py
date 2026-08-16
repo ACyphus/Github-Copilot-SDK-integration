@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 
     import copilot
     from copilot import Tool
+    from copilot.session import BlobAttachment
 
 try:
     from copilot import CopilotClient, RuntimeConnection
@@ -58,6 +59,18 @@ class CopilotSessionContext:
 
 
 @dataclass(frozen=True, slots=True)
+class CopilotModelInfo:
+    """Sanitized model capabilities used by Home Assistant."""
+
+    id: str
+    name: str
+    supports_vision: bool
+    supported_media_types: tuple[str, ...]
+    max_prompt_images: int | None
+    max_prompt_image_size: int | None
+
+
+@dataclass(frozen=True, slots=True)
 class CopilotTurnMetrics:
     """Content-free latency and usage metrics for one Copilot turn."""
 
@@ -70,6 +83,8 @@ class CopilotTurnMetrics:
     input_characters: int
     response_characters: int
     model: str
+    attachment_count: int = 0
+    attachment_bytes: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,6 +247,7 @@ class GitHubCopilotApiClient:
         *,
         turn_context: str = "",
         on_delta: Callable[[str], None] | None = None,
+        attachments: Sequence[BlobAttachment] = (),
     ) -> CopilotPromptResult:
         """Send a text prompt to an existing session."""
         result = await self.async_execute_prompt(
@@ -239,6 +255,7 @@ class GitHubCopilotApiClient:
             prompt,
             turn_context=turn_context,
             on_delta=on_delta,
+            attachments=attachments,
         )
         if not result.content:
             msg = "Copilot returned an empty response."
@@ -252,6 +269,7 @@ class GitHubCopilotApiClient:
         *,
         turn_context: str = "",
         on_delta: Callable[[str], None] | None = None,
+        attachments: Sequence[BlobAttachment] = (),
     ) -> CopilotExecutionResult:
         """Send a prompt and allow terminal-tool completion without text."""
         if not prompt.strip():
@@ -286,10 +304,10 @@ class GitHubCopilotApiClient:
 
         unsubscribe = context.copilot_session.on(on_event)
         try:
-            event = await context.copilot_session.send_and_wait(
-                message,
-                timeout=self._timeout,
-            )
+            send_kwargs: dict[str, Any] = {"timeout": self._timeout}
+            if attachments:
+                send_kwargs["attachments"] = list(attachments)
+            event = await context.copilot_session.send_and_wait(message, **send_kwargs)
         except asyncio.CancelledError:
             with suppress(Exception):
                 await context.copilot_session.abort()
@@ -326,6 +344,8 @@ class GitHubCopilotApiClient:
             input_characters=len(message),
             response_characters=len(content or ""),
             model=usage.model if usage else context.model or self._model,
+            attachment_count=len(attachments),
+            attachment_bytes=sum(_blob_attachment_bytes(item) for item in attachments),
         )
         _LOGGER.info(
             (
@@ -444,10 +464,46 @@ class GitHubCopilotApiClient:
 
     async def async_available_models(self) -> Sequence[str]:
         """Return model IDs available to the authenticated account."""
+        return [model.id for model in await self.async_available_model_info()]
+
+    async def async_available_model_info(self) -> Sequence[CopilotModelInfo]:
+        """Return sanitized model capability metadata."""
         client = await self._ensure_client()
         try:
             models = await client.list_models()
         except Exception as exception:
             msg = "Unable to fetch Copilot models."
             raise GitHubCopilotApiClientCommunicationError(msg) from exception
-        return [model.id for model in models]
+        return [_sanitize_model_info(model) for model in models]
+
+    async def async_get_model_info(self, model_id: str) -> CopilotModelInfo:
+        """Return capability metadata for one available model."""
+        for model in await self.async_available_model_info():
+            if model.id == model_id:
+                return model
+        msg = f"Copilot model '{model_id}' is not available."
+        raise GitHubCopilotApiClientError(msg)
+
+
+def _sanitize_model_info(model: Any) -> CopilotModelInfo:
+    """Convert SDK model metadata to the integration's safe subset."""
+    capabilities = getattr(model, "capabilities", None)
+    supports = getattr(capabilities, "supports", None)
+    limits = getattr(capabilities, "limits", None)
+    vision_limits = getattr(limits, "vision", None)
+    media_types = getattr(vision_limits, "supported_media_types", None) or ()
+    return CopilotModelInfo(
+        id=str(model.id),
+        name=str(getattr(model, "name", model.id)),
+        supports_vision=bool(getattr(supports, "vision", False)),
+        supported_media_types=tuple(str(item) for item in media_types),
+        max_prompt_images=getattr(vision_limits, "max_prompt_images", None),
+        max_prompt_image_size=getattr(vision_limits, "max_prompt_image_size", None),
+    )
+
+
+def _blob_attachment_bytes(attachment: BlobAttachment) -> int:
+    """Estimate decoded blob size from base64 length without decoding."""
+    data = attachment["data"]
+    padding = len(data) - len(data.rstrip("="))
+    return max(0, (len(data) * 3) // 4 - padding)

@@ -12,7 +12,7 @@ Current platforms:
 
 Planned platforms:
 
-- Image attachments for AI Tasks
+- Additional AI Task and vision automations
 
 ## Supported foundation
 
@@ -54,6 +54,7 @@ Read:
 - Keep logs and errors free of credentials, prompts, and response content.
 - Never weaken the default-deny tool policy.
 - AI Task structured output must be validated by Home Assistant schemas.
+- Image attachments must be normalized, metadata-free, size-bounded SDK blobs.
 - Do not add shell, filesystem, MCP, skills, or session-store access without an
   explicit architecture and security decision.
 - Update `addon/CHANGELOG.md` when changing the add-on.

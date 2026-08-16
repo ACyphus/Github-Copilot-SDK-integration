@@ -15,6 +15,7 @@ The current foundation provides:
 - Read-only Recorder history summaries for exposed entities.
 - Stateless Home Assistant AI Tasks with plain-text generation.
 - Schema-validated structured AI Task output through a terminal result tool.
+- Bounded still-image analysis for explicit AI Task attachments.
 - Bounded tool calls with direct unlock, garage opening, and alarm disarm blocked.
 - Content-free latency and token metrics on the conversation entity.
 - Dynamic model discovery after setup.
@@ -22,8 +23,7 @@ The current foundation provides:
 - An authenticated Home Assistant add-on for remote runtime isolation.
 - Default-deny runtime tool permissions.
 
-Camera attachments are planned follow-up work. See
-[`docs/architecture.md`](docs/architecture.md).
+See [`docs/architecture.md`](docs/architecture.md) for the complete boundary.
 
 ## Requirements
 
@@ -46,6 +46,7 @@ Use the integration options to configure:
 
 - Copilot model
 - AI Task model
+- Image attachment enable/disable and limits
 - Conversation instructions
 - Home Assistant LLM APIs
 - Maximum tool calls per turn
@@ -135,7 +136,26 @@ response_variable: result
 When a Home Assistant structure is supplied, Copilot must call a terminal
 `submit_result` tool. Home Assistant validates the submitted fields against the
 original schema. One invalid submission may be repaired; a second invalid
-submission fails explicitly. Phase 4 does not support attachments.
+submission fails explicitly.
+
+### Image attachments
+
+AI Tasks may include explicit JPEG, PNG, or WebP still images when a specific
+vision-capable AI Task model is selected. Home Assistant resolves camera/media
+attachments locally. The integration then:
+
+- Enforces configured and model-reported count and byte limits.
+- Rejects invalid, animated, oversized, or unsupported images.
+- Applies EXIF orientation and bounds the longest image dimension.
+- Re-encodes into a fresh in-memory JPEG or PNG, stripping metadata.
+- Sends only a base64 SDK blob; local filesystem paths never reach Copilot.
+
+Defaults are one image, 5 MiB, and 2048 pixels on the longest side. Images are
+cloud data and leave the local network. Continuous video, image generation,
+facial recognition, and autonomous security actions are unsupported.
+
+An initially disabled event-gated UniFi example is provided at
+[`examples/doorbell_vision_automation.yaml`](examples/doorbell_vision_automation.yaml).
 
 Copilot receives a replacement Home Assistant system prompt rather than its
 default coding-agent prompt. Current date and time are supplied per turn so

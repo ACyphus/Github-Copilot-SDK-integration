@@ -1,0 +1,116 @@
+alias: "📹 Doorbell: classify important events"
+description: >-
+  Uses local UniFi detections or a doorbell press to submit one current still
+  image to GitHub Copilot AI Task. Home Assistant validates the classification
+  and applies deterministic notification and fallback rules. No image is
+  persisted and no security action is performed.
+triggers:
+  - trigger: state
+    entity_id: binary_sensor.front_door_doorbell
+    to: "on"
+    id: doorbell
+  - trigger: state
+    entity_id: binary_sensor.front_door_person_detected
+    to: "on"
+    for:
+      seconds: 2
+    id: person
+  - trigger: state
+    entity_id: binary_sensor.front_door_object_detected
+    to: "on"
+    for:
+      seconds: 2
+    id: package
+actions:
+  - variables:
+      event_type: "{{ trigger.id | default('manual') }}"
+      camera_entity: >-
+        {{ 'camera.front_door_package'
+           if event_type == 'package'
+           else 'camera.front_door' }}
+      notification_tag: "doorbell-{{ event_type }}"
+  - action: ai_task.generate_data
+    continue_on_error: true
+    data:
+      entity_id: ai_task.github_copilot
+      task_name: "doorbell_{{ event_type }}"
+      instructions: >-
+        Analyze the attached current front-door still image.
+
+        Deterministic local trigger: {{ event_type }}.
+        Back door contact: {{ states('binary_sensor.level_lock_pro_door_2') }}.
+        Dining room door: {{ states('binary_sensor.dining_room_door') }}.
+
+        Classify only visible evidence in the image. Do not identify people,
+        infer identity, emotion, protected traits, or threat. Set
+        should_notify false for an empty or irrelevant frame. The summary must
+        be at most 180 characters. Confidence must reflect image evidence, not
+        the local trigger.
+      attachments:
+        - media_content_id: "media-source://camera/{{ camera_entity }}"
+          media_content_type: image/jpeg
+      structure:
+        should_notify:
+          required: true
+          selector:
+            boolean:
+        category:
+          required: true
+          selector:
+            select:
+              options:
+                - person
+                - package
+                - animal
+                - vehicle
+                - activity
+                - irrelevant
+        summary:
+          required: true
+          selector:
+            text:
+        confidence:
+          required: true
+          selector:
+            number:
+              min: 0
+              max: 100
+    response_variable: classification
+  - variables:
+      ai_succeeded: >-
+        {{ classification is defined
+           and classification.data is defined
+           and classification.data.summary is defined }}
+      should_notify: >-
+        {{ event_type in ['doorbell', 'person']
+           or (ai_succeeded
+               and classification.data.should_notify
+               and classification.data.confidence | float(0) >= 70) }}
+  - if:
+      - condition: template
+        value_template: "{{ should_notify }}"
+    then:
+      - action: notify.mobile_app_icaruspromax
+        data:
+          title: >-
+            {% if event_type == 'doorbell' %}
+              Front Door Bell
+            {% elif ai_succeeded %}
+              Front Door: {{ classification.data.category | title }}
+            {% else %}
+              Front Door {{ event_type | title }}
+            {% endif %}
+          message: >-
+            {% if ai_succeeded %}
+              {{ classification.data.summary }}
+              ({{ classification.data.confidence | round(0) }}% confidence)
+            {% else %}
+              Home Assistant detected a {{ event_type }} event at the front door.
+            {% endif %}
+          data:
+            tag: "{{ notification_tag }}"
+            entity_id: "{{ camera_entity }}"
+  - delay:
+      seconds: 30
+mode: single
+initial_state: false

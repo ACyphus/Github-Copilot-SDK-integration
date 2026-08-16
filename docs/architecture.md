@@ -80,6 +80,26 @@ Structured tasks:
 AI Tasks do not receive native Assist tools or `GetHistory`. Automations gather
 deterministic context before invoking the task.
 
+## AI Task image attachments
+
+Home Assistant resolves camera and local-media attachments into temporary local
+paths. The integration never passes those paths to the SDK.
+
+For every explicit image attachment it:
+
+1. Verifies the selected model's live vision capability and limits.
+2. Intersects model limits with configured count, byte, and dimension limits.
+3. Accepts only JPEG, PNG, and WebP still images.
+4. Reads with a strict encoded-byte bound.
+5. Decodes in the executor with decoded-pixel protections.
+6. Applies EXIF orientation, resizes, and strips metadata through re-encoding.
+7. Creates an in-memory base64 SDK blob attachment.
+8. Releases task data when the one-shot session ends.
+
+Structured image tasks still expose only `submit_result`. Image support does
+not add Home Assistant control, history, shell, filesystem, MCP, skills, or
+session-store access.
+
 Each completed turn emits content-free INFO metrics for latency analysis:
 
 - Total Copilot request duration
@@ -156,4 +176,4 @@ Home Assistant LLM API.
 
 ## Planned extensions
 
-1. Add Home Assistant media attachments as SDK image blobs.
+1. Add further event-gated household vision automations.

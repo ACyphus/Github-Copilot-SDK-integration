@@ -13,6 +13,10 @@ CONF_AI_TASK_MODEL = "ai_task_model"
 CONF_MODEL = "model"
 CONF_CLI_URL = "cli_url"
 CONF_CONNECTION_TOKEN = "connection_token"  # noqa: S105
+CONF_ATTACHMENTS_ENABLED = "attachments_enabled"
+CONF_MAX_ATTACHMENT_BYTES = "max_attachment_bytes"
+CONF_MAX_ATTACHMENTS = "max_attachments"
+CONF_MAX_IMAGE_DIMENSION = "max_image_dimension"
 CONF_MAX_TOOL_CALLS = "max_tool_calls"
 CONF_SESSION_TIMEOUT = "session_timeout"
 CONF_TIMEOUT = "timeout"
@@ -21,6 +25,10 @@ CONF_TIMEOUT = "timeout"
 DEFAULT_MODEL = "auto"
 DEFAULT_CLI_URL = ""
 DEFAULT_CONNECTION_TOKEN = ""
+DEFAULT_ATTACHMENTS_ENABLED = True
+DEFAULT_MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
+DEFAULT_MAX_ATTACHMENTS = 1
+DEFAULT_MAX_IMAGE_DIMENSION = 2048
 LEGACY_DEFAULT_PROMPT = """You are the household's Home Assistant voice agent.
 Answer truthfully in concise, conversational plain text suitable for speech.
 Do not use Markdown or provide URLs unless the user asks for them.

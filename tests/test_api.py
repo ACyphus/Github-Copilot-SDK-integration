@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -12,6 +13,7 @@ from copilot.session_events import AssistantMessageDeltaData, AssistantUsageData
 
 from custom_components.github_copilot.api import (
     CopilotExecutionResult,
+    CopilotModelInfo,
     GitHubCopilotApiClient,
     GitHubCopilotApiClientAuthenticationError,
 )
@@ -256,6 +258,82 @@ async def test_terminal_prompt_allows_no_assistant_content() -> None:
     assert isinstance(result, CopilotExecutionResult)
     assert result.content is None
     assert result.metrics.response_characters == 0
+
+
+@pytest.mark.asyncio
+async def test_prompt_forwards_blob_attachments() -> None:
+    """Validated blobs should be passed to the SDK without filesystem paths."""
+    sdk_client = _mock_sdk_client()
+    sdk_session = MagicMock(session_id="session-id")
+    sdk_session.on.return_value = MagicMock()
+    sdk_session.send_and_wait = AsyncMock(
+        return_value=SimpleNamespace(data=SimpleNamespace(content="blue"))
+    )
+    sdk_client.create_session = AsyncMock(return_value=sdk_session)
+    blob = {
+        "type": "blob",
+        "data": base64.b64encode(b"image-bytes").decode(),
+        "mimeType": "image/jpeg",
+        "displayName": "image.jpg",
+    }
+
+    with patch(
+        "custom_components.github_copilot.api.CopilotClient",
+        return_value=sdk_client,
+    ):
+        client = GitHubCopilotApiClient(github_token="github-token")
+        context = await client.async_create_session()
+        result = await client.async_send_prompt(
+            context.session_id,
+            "Describe it",
+            attachments=[blob],
+        )
+
+    sdk_session.send_and_wait.assert_awaited_once_with(
+        "Describe it",
+        timeout=120.0,
+        attachments=[blob],
+    )
+    assert result.metrics.attachment_count == 1
+    assert result.metrics.attachment_bytes == len(b"image-bytes")
+
+
+@pytest.mark.asyncio
+async def test_model_info_is_sanitized() -> None:
+    """Only vision metadata needed by Home Assistant should be projected."""
+    sdk_client = _mock_sdk_client()
+    sdk_client.list_models.return_value = [
+        SimpleNamespace(
+            id="vision-model",
+            name="Vision Model",
+            capabilities=SimpleNamespace(
+                supports=SimpleNamespace(vision=True),
+                limits=SimpleNamespace(
+                    vision=SimpleNamespace(
+                        supported_media_types=["image/jpeg"],
+                        max_prompt_images=2,
+                        max_prompt_image_size=4_000_000,
+                    )
+                ),
+            ),
+        )
+    ]
+
+    with patch(
+        "custom_components.github_copilot.api.CopilotClient",
+        return_value=sdk_client,
+    ):
+        client = GitHubCopilotApiClient(github_token="github-token")
+        info = await client.async_get_model_info("vision-model")
+
+    assert info == CopilotModelInfo(
+        id="vision-model",
+        name="Vision Model",
+        supports_vision=True,
+        supported_media_types=("image/jpeg",),
+        max_prompt_images=2,
+        max_prompt_image_size=4_000_000,
+    )
 
 
 @pytest.mark.asyncio

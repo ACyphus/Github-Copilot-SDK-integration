@@ -11,6 +11,7 @@ from copilot import ToolInvocation
 from homeassistant.components import ai_task, conversation
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
+from PIL import Image
 
 from custom_components.github_copilot.ai_task import (
     GitHubCopilotAITaskEntity,
@@ -18,6 +19,7 @@ from custom_components.github_copilot.ai_task import (
 )
 from custom_components.github_copilot.api import (
     CopilotExecutionResult,
+    CopilotModelInfo,
     CopilotPromptResult,
     CopilotSessionContext,
     CopilotTurnMetrics,
@@ -64,6 +66,16 @@ def _client() -> MagicMock:
         )
     )
     client.async_end_session = AsyncMock()
+    client.async_get_model_info = AsyncMock(
+        return_value=CopilotModelInfo(
+            id="task-model",
+            name="Task Model",
+            supports_vision=True,
+            supported_media_types=("image/jpeg",),
+            max_prompt_images=1,
+            max_prompt_image_size=5 * 1024 * 1024,
+        )
+    )
     return client
 
 
@@ -123,7 +135,10 @@ async def test_platform_registers_generate_data_entity(hass) -> None:
     entity = add_entities.call_args.args[0][0]
     assert isinstance(entity, GitHubCopilotAITaskEntity)
     assert entity.unique_id == "entry-id-ai-task"
-    assert entity.supported_features == ai_task.AITaskEntityFeature.GENERATE_DATA
+    assert entity.supported_features == (
+        ai_task.AITaskEntityFeature.GENERATE_DATA
+        | ai_task.AITaskEntityFeature.SUPPORT_ATTACHMENTS
+    )
 
 
 @pytest.mark.asyncio
@@ -291,16 +306,82 @@ async def test_structured_task_requires_submit_result(hass) -> None:
 
 
 @pytest.mark.asyncio
-async def test_task_rejects_attachments_defensively(hass) -> None:
-    """Phase 4 must not accept attachments inside the entity."""
+async def test_plain_text_vision_task_passes_normalized_blob(
+    hass,
+    tmp_path,
+) -> None:
+    """AI Tasks should validate images and pass SDK blobs without paths."""
     client = _client()
+    image_path = tmp_path / "image.jpg"
+
+    Image.new("RGB", (32, 32), "blue").save(image_path, format="JPEG")
     task = ai_task.GenDataTask(
         name="attachment-task",
-        instructions="Read this",
-        attachments=[MagicMock()],
+        instructions="Describe this image",
+        attachments=[
+            conversation.Attachment(
+                media_content_id="media-source://camera/camera.test",
+                mime_type="image/jpeg",
+                path=image_path,
+            )
+        ],
     )
 
-    with pytest.raises(HomeAssistantError, match="do not support attachments"):
-        await _entity(hass, client)._async_generate_data(task, _chat_log(hass))
+    result = await _entity(hass, client)._async_generate_data(task, _chat_log(hass))
 
-    client.async_create_session.assert_not_awaited()
+    assert result.data == "Task response"
+    attachments = client.async_send_prompt.await_args.kwargs["attachments"]
+    assert len(attachments) == 1
+    assert attachments[0]["type"] == "blob"
+    assert attachments[0]["mimeType"] == "image/jpeg"
+    assert "path" not in attachments[0]
+
+
+@pytest.mark.asyncio
+async def test_structured_vision_task_preserves_submit_only_tools(
+    hass,
+    tmp_path,
+) -> None:
+    """Vision should not add tools beyond the structured result tool."""
+    client = _client()
+    image_path = tmp_path / "image.jpg"
+
+    Image.new("RGB", (32, 32), "green").save(image_path, format="JPEG")
+
+    async def execute(*_args, **_kwargs):
+        tools = client.async_create_session.await_args.kwargs["tools"]
+        assert [tool.name for tool in tools] == ["submit_result"]
+        assert len(_kwargs["attachments"]) == 1
+        await tools[0].handler(
+            ToolInvocation(
+                tool_name="submit_result",
+                tool_call_id="call-1",
+                arguments={
+                    "should_notify": False,
+                    "category": "normal",
+                },
+            )
+        )
+        return CopilotExecutionResult(content=None, metrics=_metrics())
+
+    client.async_execute_prompt.side_effect = execute
+    result = await _entity(hass, client)._async_generate_data(
+        ai_task.GenDataTask(
+            name="vision-structured",
+            instructions="Classify this image",
+            structure=_structure(),
+            attachments=[
+                conversation.Attachment(
+                    media_content_id="media-source://camera/camera.test",
+                    mime_type="image/jpeg",
+                    path=image_path,
+                )
+            ],
+        ),
+        _chat_log(hass),
+    )
+
+    assert result.data == {
+        "should_notify": False,
+        "category": "normal",
+    }

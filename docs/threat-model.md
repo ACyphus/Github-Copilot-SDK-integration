@@ -54,12 +54,16 @@ Cloud boundary receiving prompts and explicitly attached data.
 | Structured prose bypasses validation | Structured results are accepted only through `submit_result` and the original HA schema |
 | Invalid structured output loops indefinitely | One repair attempt; the second invalid submission forces terminal failure |
 | Task history leaks between automations | Every AI Task uses a new short-lived SDK session |
-| Task attachments leave the network before controls exist | Phase 4 does not advertise attachment support |
+| Image leaves the network unexpectedly | Attachments require an explicit AI Task action and enabled integration option |
+| Local image path leaks to Copilot | Only normalized SDK blob attachments are used |
+| Image metadata leaks location/device details | Re-encode into a fresh buffer and strip metadata |
+| Compressed image exhausts memory | Encoded byte, decoded pixel, and dimension limits |
+| Text-only or unknown model receives an image | Require explicit live vision capability before reading attachment bytes |
+| Duplicate camera events consume quota | Event-gated automations use cooldowns and replacement notification tags |
 
-## Required future controls
+## Required deployment controls
 
-Before image support ships:
-
-- Enforce image count, MIME type, and byte limits.
-- Do not log or persist image data.
 - Document every automation that sends an image to Copilot.
+- Keep camera analysis event-gated rather than continuous.
+- Use deterministic notification and security-action policies around vision
+  output.

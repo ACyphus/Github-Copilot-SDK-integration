@@ -112,9 +112,13 @@ async def main() -> None:
             raise RuntimeError(msg)
 
         models = await client.list_models()
-        model_ids = {model.id for model in models}
+        models_by_id = {model.id: model for model in models}
+        model_ids = set(models_by_id)
         if MODEL not in model_ids:
             msg = f"Configured smoke-test model '{MODEL}' is unavailable."
+            raise RuntimeError(msg)
+        if not models_by_id[MODEL].capabilities.supports.vision:
+            msg = f"Configured smoke-test model '{MODEL}' lacks vision support."
             raise RuntimeError(msg)
 
         tool = Tool(
