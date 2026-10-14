@@ -16,12 +16,20 @@ REQUIREMENTS = ROOT / "requirements.txt"
 DOCKERFILE = ROOT / "addon" / "Dockerfile"
 PYPI_API = "https://pypi.org/pypi/{package}/json"
 CLI_RELEASE_API = "https://api.github.com/repos/github/copilot-cli/releases/latest"
+CONVERSATION_MANIFEST = (
+    "https://raw.githubusercontent.com/home-assistant/core/{version}/"
+    "homeassistant/components/conversation/manifest.json"
+)
 WORKFLOWS = ROOT / ".github" / "workflows"
 DIRECT_PACKAGES = (
     "colorlog",
+    "gazetteer-matcher",
     "github-copilot-sdk",
+    "hassil",
     "homeassistant",
+    "home-assistant-intents",
     "pip",
+    "PyTurboJPEG",
     "pytest",
     "pytest-homeassistant-custom-component",
     "ruff",
@@ -56,15 +64,15 @@ def _read_pins() -> dict[str, str]:
     return pins
 
 
-def _compatible_pytest_version(plugin_metadata: dict) -> str:
-    """Return the pytest version required by the HA test plugin."""
-    for requirement_text in plugin_metadata["info"]["requires_dist"]:
+def _pinned_dependency_version(requirements: list[str], package: str) -> str:
+    """Return an exact dependency version required by Home Assistant."""
+    for requirement_text in requirements:
         requirement = Requirement(requirement_text)
-        if requirement.name == "pytest":
+        if requirement.name == package:
             match = re.fullmatch(r"==([^,; ]+)", str(requirement.specifier))
             if match:
                 return match.group(1)
-    msg = "Unable to determine the pytest version required by the HA test plugin."
+    msg = f"Unable to determine the required version of {package}."
     raise RuntimeError(msg)
 
 
@@ -77,14 +85,22 @@ def main() -> int:
         for package in DIRECT_PACKAGES
     }
 
-    compatible_pytest = _compatible_pytest_version(
-        metadata["pytest-homeassistant-custom-component"]
+    conversation_requirements = _fetch_json(
+        CONVERSATION_MANIFEST.format(
+            version=metadata["homeassistant"]["info"]["version"]
+        )
+    )["requirements"]
+    compatible_versions = {
+        package: _pinned_dependency_version(conversation_requirements, package)
+        for package in ("gazetteer-matcher", "hassil", "home-assistant-intents")
+    }
+    compatible_versions["pytest"] = _pinned_dependency_version(
+        metadata["pytest-homeassistant-custom-component"]["info"]["requires_dist"],
+        "pytest",
     )
     for package in DIRECT_PACKAGES:
-        expected = (
-            compatible_pytest
-            if package == "pytest"
-            else metadata[package]["info"]["version"]
+        expected = compatible_versions.get(
+            package, metadata[package]["info"]["version"]
         )
         actual = pins.get(package)
         status = "ok" if actual == expected else "outdated"

@@ -6,7 +6,7 @@
 - Bridge connection token
 - Copilot usage quota
 - Home Assistant entity state
-- Future camera snapshots and tool arguments
+- Explicitly attached camera stills and tool arguments
 
 ## Trust boundaries
 
@@ -42,7 +42,7 @@ Cloud boundary receiving prompts and explicitly attached data.
 | Secrets appear in logs | Errors report categories and safe hostnames only |
 | Unauthenticated bridge exposure | Runtime binds loopback; authenticated proxy is Supervisor-only |
 | Stale vulnerable runtime remains pinned | Automated dependency audit |
-| Camera content is uploaded unexpectedly | Attachments require explicit future AI Task actions |
+| Camera content is uploaded unexpectedly | Images require an explicit AI Task attachment and enabled integration option |
 | Recreated model session loses or invents context | Restore only bounded user/assistant ChatLog content, labeled as prior context |
 | Prior transcript is treated as system instruction | Keep transcript in the user turn and explicitly label it as non-instruction context |
 | Model controls an unexposed entity | Tools execute through the native Home Assistant LLM API and request context |
@@ -59,7 +59,7 @@ Cloud boundary receiving prompts and explicitly attached data.
 | Image metadata leaks location/device details | Re-encode into a fresh buffer and strip metadata |
 | Compressed image exhausts memory | Encoded byte, decoded pixel, and dimension limits |
 | Text-only or unknown model receives an image | Require explicit live vision capability before reading attachment bytes |
-| Duplicate camera events consume quota | Event-gated automations use cooldowns and replacement notification tags |
+| Duplicate camera events consume quota | Event gating and automation-defined concurrency/cooldown policies; the integration does not deduplicate events |
 
 ## Required deployment controls
 
@@ -67,3 +67,6 @@ Cloud boundary receiving prompts and explicitly attached data.
 - Keep camera analysis event-gated rather than continuous.
 - Use deterministic notification and security-action policies around vision
   output.
+- Choose per-automation concurrency, cooldown and notification-tagging policies
+  explicitly. These are deployment choices, not integration-enforced controls.
+  `mode: single` prevents overlapping runs; it is not a timed cooldown.

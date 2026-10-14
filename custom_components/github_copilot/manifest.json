@@ -12,7 +12,7 @@
   "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/ACyphus/Github-Copilot-SDK-integration/issues",
   "requirements": [
-    "github-copilot-sdk @ https://files.pythonhosted.org/packages/67/ac/175cbb71fe637d963a885248a421040c9d500ea6390ed3b88bc68ecf51ca/github_copilot_sdk-1.0.11-py3-none-any.whl#sha256=6f664c7b843c34ab5a7455f7effb4d339eae75969d2b72f43c2e6214c9c637dc"
+    "github-copilot-sdk @ https://files.pythonhosted.org/packages/ac/81/9bd1f3c4c59b6951a9b9c3877daf83fadbf688dbfe5fae3256191e0188ab/github_copilot_sdk-1.0.21-py3-none-any.whl#sha256=bfc69229b0de679b19bf3542f4b8f2ccd5421e5cc676a641bd018491464b441f"
   ],
-  "version": "5.0.0"
+  "version": "5.1.0"
 }

@@ -1,13 +1,15 @@
 colorlog==6.12.0
-https://files.pythonhosted.org/packages/67/ac/175cbb71fe637d963a885248a421040c9d500ea6390ed3b88bc68ecf51ca/github_copilot_sdk-1.0.11-py3-none-any.whl#sha256=6f664c7b843c34ab5a7455f7effb4d339eae75969d2b72f43c2e6214c9c637dc
-hassil==3.11.0
-https://files.pythonhosted.org/packages/5e/13/65797a825358e3b7c1cb5bba1e2743852f670d7df4f30eb0ee32da13a7af/homeassistant-2026.8.2-py3-none-any.whl#sha256=12242a12cf834d4fb97f21a28af94ad4a1cb7bf110e0ad45a3523062bd969ce6
-home-assistant-intents==2026.7.30
+gazetteer-matcher==1.1.0
+https://files.pythonhosted.org/packages/ac/81/9bd1f3c4c59b6951a9b9c3877daf83fadbf688dbfe5fae3256191e0188ab/github_copilot_sdk-1.0.21-py3-none-any.whl#sha256=bfc69229b0de679b19bf3542f4b8f2ccd5421e5cc676a641bd018491464b441f
+hassil==3.12.1
+https://files.pythonhosted.org/packages/48/e2/a6c3560689bd6180f88cc1bd3cbdf1cc8cfb1e76b39ae44aa10245def81c/homeassistant-2026.10.1-py3-none-any.whl#sha256=2c3f82b25ec4c62905c2bd229acdd7fa075d1d6b2d701f89b5aaa1d278f01b70
+home-assistant-intents==2026.10.6
 pip==26.2.1
 PyTurboJPEG==2.5.0
+# Match the pytest version required by the Home Assistant test plugin.
 pytest==9.0.3
-https://files.pythonhosted.org/packages/a6/80/51a470f8091941fb5a418a28ec0b304633767349da28bb424f1ff7ac2651/pytest_homeassistant_custom_component-0.13.356-py3-none-any.whl#sha256=ced474db4b060d530e36a2e36f03fec03be4af717bc54fcc1ecd4cae38151677
-ruff @ https://files.pythonhosted.org/packages/3e/1e/4b8b72f0d006dbf19326aa99f9ca0ee2ff374187c4d301cf529a51aa06fe/ruff-0.16.3-py3-none-macosx_11_0_arm64.whl#sha256=e2ed719e14aa64d895c2ee922594a90a43c861a93f0575a95ff8c47cdbd13eb9 ; sys_platform == "darwin" and platform_machine == "arm64"
-ruff @ https://files.pythonhosted.org/packages/5e/e6/2becf3942fddc29a29b8df47691d456fb1085391a694f74d84513251418c/ruff-0.16.3-py3-none-macosx_10_12_x86_64.whl#sha256=fe155130631a2471fd2e14a7a664a4dfbd7194b8229c3d7b2a40b21178639081 ; sys_platform == "darwin" and platform_machine == "x86_64"
-ruff @ https://files.pythonhosted.org/packages/92/32/2201fa49ba1f6c101ee321e83f051ac7a4b8d07b0ef6b4d3f2772b302275/ruff-0.16.3-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl#sha256=9e0b1da805eb043654645d74d5de1e5ce2edc686e40790d2b86f56d71cc06a84 ; sys_platform == "linux" and platform_machine == "aarch64"
-ruff @ https://files.pythonhosted.org/packages/c7/30/4c468429ac195addc5ee1b717b6ab1b66632786737ca3b2ed3443fb0c26a/ruff-0.16.3-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl#sha256=294b95c4ae0cda9388525c2047778aa758d6b8d4bb876fd4e9eaa3ebc92343eb ; sys_platform == "linux" and platform_machine == "x86_64"
+https://files.pythonhosted.org/packages/91/e3/14c0606c5757a978772aba2da40095181765d9c8477d6320d2b065f29df0/pytest_homeassistant_custom_component-0.13.372-py3-none-any.whl#sha256=fbc048034cf63c1923c42092b8b09605f183e9a9da1f1c47dfb578afdbd1b1e6
+ruff @ https://files.pythonhosted.org/packages/a7/20/643f3c8f75594f937b2bf74801241c56a2e2b8e139d24dff8b66b28cdd7f/ruff-0.17.0-py3-none-macosx_11_0_arm64.whl#sha256=cbf7149e0927dc3295d5d64679a4765576eef71b00782b2ae969ef82274d6bb9 ; sys_platform == "darwin" and platform_machine == "arm64"
+ruff @ https://files.pythonhosted.org/packages/9f/d9/2f81fb5a9d580afbb11b1c8ff915233a11f2a1b27405d7991f183c5e1976/ruff-0.17.0-py3-none-macosx_10_12_x86_64.whl#sha256=5f0ca4a40f81403689c04f12966e22f44e329ae362072d8f1587b7bda87f603b ; sys_platform == "darwin" and platform_machine == "x86_64"
+ruff @ https://files.pythonhosted.org/packages/ec/91/627700b233d367736cb274f1bd0b47d1f2b12f68878192812bd875adadc3/ruff-0.17.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl#sha256=13ee90156522998c3037059d8f66885c8adeeaf7643bdce2caceee196ecd23e0 ; sys_platform == "linux" and platform_machine == "aarch64"
+ruff @ https://files.pythonhosted.org/packages/2c/3c/4a01195d93420cad1175bedad13a515dc8a56f95a6e39789b92e582682f5/ruff-0.17.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl#sha256=bc73e7c133e82d55b5f15897b2a442d72c0cb4a0c886c46801ce3c247150b60c ; sys_platform == "linux" and platform_machine == "x86_64"

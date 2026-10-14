@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-10-14
+
+### Changed
+
+- Upgraded GitHub Copilot CLI from v1.0.80 to v1.0.97.
+- Paired the bridge with integration 5.1.0 and Copilot SDK 1.0.21.
+- Updated both architecture base images to Debian Trixie release 2026.10.0.
+
 ## [4.0.0] - 2026-08-15
 
 ### Changed
@@ -149,7 +157,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 The bridge add-on is designed to work seamlessly with the GitHub Copilot Home Assistant integration:
 
-- **v3.11.0 (current)**: Compatible with integration v1.0.7 using the patched `github-copilot-sdk 0.1.22+ha` wheel (auto-installed; works on all platforms including HA OS)
+- **v4.1.0 (current)**: Paired with integration 5.1.0 and the official `github-copilot-sdk 1.0.21` universal wheel.
+- **v3.11.0**: Compatible with integration v1.0.7 using the patched `github-copilot-sdk 0.1.22+ha` wheel (auto-installed; works on all platforms including HA OS)
 - **v3.10.2**: Compatible with integration v1.0.7 using the patched `github-copilot-sdk 0.1.22+ha` wheel (auto-installed; works on all platforms including HA OS)
 - **v3.10.1**: Compatible with integration v1.0.7 using the patched `github-copilot-sdk 0.1.22+ha` wheel (auto-installed; works on all platforms including HA OS)
 - **v3.10.0**: Compatible with integration v1.0.7 using the patched `github-copilot-sdk 0.1.22+ha` wheel (auto-installed; works on all platforms including HA OS)
@@ -163,9 +172,10 @@ For best results, always use the latest versions of both the add-on and the inte
 
 ## Notes
 
-- The add-on requires a valid GitHub Personal Access Token with Copilot permissions (provided to the add-on as `GH_TOKEN`)
-- When the Home Assistant integration is configured in remote/bridge mode (`cli_url` set), it does not store or pass a GitHub token; authentication is handled entirely by the bridge add-on via its own `GH_TOKEN`
-- The add-on URL format is `http://<hostname>:8000` where hostname can be found in the add-on Info tab
+- The `github_token` option accepts a supported GitHub OAuth user token or fine-grained personal access token with Copilot access. The add-on exports it as `COPILOT_GITHUB_TOKEN`.
+- The separate `connection_token` option is exported as `COPILOT_CONNECTION_TOKEN` and authenticates Core's JSON-RPC connection to the bridge. It must not be the GitHub token.
+- In remote/bridge mode (`cli_url` set), the integration retains the connection token but does not store or pass a GitHub token.
+- Configure the integration's bridge address as `<add-on-hostname>:8000`, using the hostname from the add-on Info tab. The endpoint is Supervisor-network-only by default, with no host port exposed.
 - The bridge add-on is especially useful for Home Assistant OS users where manual CLI installation is challenging
 
 [v3.11.0]: https://github.com/tserra30/Github-Copilot-SDK-integration/compare/v3.10.2...v3.11.0

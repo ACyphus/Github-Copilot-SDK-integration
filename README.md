@@ -28,8 +28,17 @@ See [`docs/architecture.md`](docs/architecture.md) for the complete boundary.
 ## Requirements
 
 - Home Assistant 2026.8.2 or later.
+- Uses Home Assistant's matching schema converter on 2026.8 through 2026.10
+  (including the switch to Probatio); no separate converter installation is needed.
 - An active GitHub Copilot subscription.
 - A supported GitHub OAuth user token or fine-grained personal access token.
+
+The current dependency baseline is Home Assistant 2026.10.1, Copilot SDK
+1.0.21, and Copilot CLI 1.0.97. The Home Assistant test plugin requires
+pytest 9.0.3, and HA's conversation component requires gazetteer-matcher 1.1.0,
+so these dependencies intentionally use their compatible versions.
+The integration supports both legacy tool results and HA 2026.10's typed
+tool results and native Probatio schemas.
 
 ## Installation
 

@@ -29,6 +29,8 @@ Home Assistant
 The official Python SDK remains in Home Assistant Core. Its wheel is universal
 and does not require the native runtime to load inside Core when a remote URI
 connection is used.
+Local runtime clients use an explicit temporary data directory, isolated from
+ambient Copilot configuration and removed when the client closes.
 
 The bridge add-on runs Copilot CLI. The CLI listens on loopback. A `socat`
 proxy exposes the authenticated JSON-RPC port to the Supervisor network because
@@ -71,7 +73,8 @@ Plain-text tasks:
 
 Structured tasks:
 
-- Convert the Home Assistant Voluptuous structure to JSON Schema.
+- Convert the native Home Assistant structure to JSON Schema using its matching
+  schema library (Voluptuous through 2026.9, Probatio from 2026.10).
 - Register only a terminal `submit_result` custom tool.
 - Validate submitted arguments with the original Home Assistant schema.
 - Return the validated native data rather than parsing assistant prose.
@@ -154,6 +157,8 @@ Home Assistant `llm.Tool` schemas are converted to Copilot SDK custom tools.
 Their handlers call the current `ChatLog` LLM API instance, so Home Assistant
 retains exposure checks, request context, validation, traces, and execution.
 The session dispatcher is rebound on every serialized conversation turn.
+HA 2026.10 typed tool results preserve their native error flag. Earlier HA
+versions continue to use their original dictionary-based tool results.
 
 The integration appends one custom read-only Home Assistant tool:
 

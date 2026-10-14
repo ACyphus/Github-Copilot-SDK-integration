@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import urlparse
 
-import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_LLM_HASS_API, CONF_PROMPT
 from homeassistant.helpers import llm, selector
@@ -44,6 +43,7 @@ from .const import (
     LEGACY_MODEL_MAP,
     LOGGER,
 )
+from .schema import vol
 
 
 def _validate_cli_url(cli_url: str) -> bool:

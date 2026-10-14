@@ -8,6 +8,7 @@ import base64
 import io
 import os
 from dataclasses import dataclass, field
+from tempfile import TemporaryDirectory
 
 from copilot import CopilotClient, RuntimeConnection, ToolSet
 from copilot.generated.rpc import (
@@ -75,7 +76,7 @@ def _permission_handler(request, _invocation):
     return PermissionDecisionReject(feedback="Denied by the Phase 1 smoke test.")
 
 
-def _client() -> CopilotClient:
+def _client(base_directory: str) -> CopilotClient:
     """Create a local or remote empty-mode SDK client."""
     runtime_url = os.environ.get("COPILOT_RUNTIME_URL", "")
     if runtime_url:
@@ -88,7 +89,12 @@ def _client() -> CopilotClient:
             connection_token=connection_token,
         )
         return CopilotClient(connection=connection, log_level="error", mode="empty")
-    return CopilotClient(use_logged_in_user=True, log_level="error", mode="empty")
+    return CopilotClient(
+        use_logged_in_user=True,
+        base_directory=base_directory,
+        log_level="error",
+        mode="empty",
+    )
 
 
 def _image_attachment() -> dict:
@@ -103,9 +109,9 @@ def _image_attachment() -> dict:
     }
 
 
-async def main() -> None:
+async def _async_probe(base_directory: str) -> None:
     """Run authentication, tool, permission, image, and usage probes."""
-    async with _client() as client:
+    async with _client(base_directory) as client:
         auth = await client.get_auth_status()
         if not auth.isAuthenticated:
             msg = "Copilot runtime is not authenticated."
@@ -190,6 +196,12 @@ async def main() -> None:
         f"Boundary smoke test passed with {MODEL}: authentication, model listing, "
         "custom tools, default-deny, image input, and usage events."
     )
+
+
+async def main() -> None:
+    """Run the probes with isolated local runtime storage."""
+    with TemporaryDirectory(prefix="copilot-smoke-") as base_directory:
+        await _async_probe(base_directory)
 
 
 if __name__ == "__main__":

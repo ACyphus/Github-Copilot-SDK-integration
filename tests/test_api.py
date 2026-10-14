@@ -6,9 +6,11 @@ import asyncio
 import base64
 from datetime import timedelta
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from copilot import CopilotClient
 from copilot.session_events import AssistantMessageDeltaData, AssistantUsageData
 
 from custom_components.github_copilot.api import (
@@ -17,6 +19,17 @@ from custom_components.github_copilot.api import (
     GitHubCopilotApiClient,
     GitHubCopilotApiClientAuthenticationError,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
+
+
+@pytest.fixture(autouse=True)
+def runtime_directory(tmp_path) -> Generator[MagicMock]:
+    """Keep mocked SDK clients from creating real runtime directories."""
+    with patch("custom_components.github_copilot.api.TemporaryDirectory") as directory:
+        directory.return_value.name = str(tmp_path / "runtime")
+        yield directory
 
 
 def _mock_sdk_client() -> MagicMock:
@@ -66,7 +79,9 @@ async def test_remote_client_uses_authenticated_empty_runtime() -> None:
 
 
 @pytest.mark.asyncio
-async def test_local_client_uses_only_explicit_github_token() -> None:
+async def test_local_client_uses_only_explicit_github_token(
+    runtime_directory,
+) -> None:
     """Local mode should disable ambient account authentication."""
     sdk_client = _mock_sdk_client()
 
@@ -79,10 +94,38 @@ async def test_local_client_uses_only_explicit_github_token() -> None:
 
     client_factory.assert_called_once_with(
         github_token="github-token",
+        base_directory=runtime_directory.return_value.name,
         log_level="error",
         mode="empty",
         use_logged_in_user=False,
     )
+
+
+@pytest.mark.asyncio
+async def test_local_empty_mode_uses_real_sdk_constructor(runtime_directory) -> None:
+    """The real SDK must accept our storage and authentication configuration."""
+    with (
+        patch.object(
+            CopilotClient, "_resolve_runtime_entrypoint", return_value="/test/copilot"
+        ),
+        patch.object(CopilotClient, "start", new=AsyncMock()),
+        patch.object(CopilotClient, "stop", new=AsyncMock()),
+        patch.object(
+            CopilotClient,
+            "get_auth_status",
+            new=AsyncMock(return_value=SimpleNamespace(isAuthenticated=True)),
+        ),
+        patch.object(
+            CopilotClient,
+            "list_models",
+            new=AsyncMock(return_value=[SimpleNamespace(id="auto")]),
+        ),
+    ):
+        client = GitHubCopilotApiClient(github_token="github-token")
+        assert await client.async_available_models() == ["auto"]
+        await client.async_close()
+
+    runtime_directory.return_value.cleanup.assert_called_once_with()
 
 
 @pytest.mark.asyncio

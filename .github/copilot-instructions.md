@@ -16,11 +16,11 @@ Planned platforms:
 
 ## Supported foundation
 
-- Home Assistant 2026.8.2+
+- Home Assistant 2026.8.2+ (validation baseline: 2026.10.1)
 - Python 3.14+
-- GitHub Copilot SDK 1.0.11
-- GitHub Copilot CLI release v1.0.80
-- Ruff 0.16.3
+- GitHub Copilot SDK 1.0.21
+- GitHub Copilot CLI release v1.0.97
+- Ruff 0.17.0
 - pytest with pytest-homeassistant-custom-component
 
 Dependencies are pinned in `requirements.txt`. Some current releases use

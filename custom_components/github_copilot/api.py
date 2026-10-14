@@ -8,6 +8,7 @@ import socket
 import time
 from contextlib import suppress
 from dataclasses import dataclass
+from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
@@ -139,6 +140,7 @@ class GitHubCopilotApiClient:
         self._connection_token = connection_token
         self._timeout = timeout
         self._client: copilot.CopilotClient | None = None
+        self._runtime_directory: TemporaryDirectory[str] | None = None
         self._sessions: dict[str, CopilotSessionContext] = {}
         self._session_lock = asyncio.Lock()
         self._client_lock = asyncio.Lock()
@@ -374,9 +376,15 @@ class GitHubCopilotApiClient:
                 await self.async_end_session(session_id)
 
         async with self._client_lock:
-            if self._client is not None:
-                await self._client.stop()
+            try:
+                if self._client is not None:
+                    await self._client.stop()
+            finally:
                 self._client = None
+                directory = self._runtime_directory
+                self._runtime_directory = None
+                if directory is not None:
+                    await asyncio.to_thread(directory.cleanup)
 
     async def _ensure_client(self) -> copilot.CopilotClient:
         """Start and authenticate the Copilot SDK client."""
@@ -398,8 +406,14 @@ class GitHubCopilotApiClient:
                         mode="empty",
                     )
                 else:
+                    if self._runtime_directory is None:
+                        self._runtime_directory = await asyncio.to_thread(
+                            TemporaryDirectory,
+                            prefix="ha-copilot-",
+                        )
                     client = CopilotClient(
                         github_token=self._github_token,
+                        base_directory=self._runtime_directory.name,
                         log_level="error",
                         mode="empty",
                         use_logged_in_user=False,

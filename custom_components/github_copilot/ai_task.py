@@ -5,12 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, override
 
-import voluptuous as vol
 from copilot import Tool, ToolInvocation, ToolResult
 from homeassistant.components import ai_task, conversation
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import llm
-from voluptuous_openapi import convert
 
 from .api import (
     CopilotExecutionResult,
@@ -22,6 +20,8 @@ from .api import (
 )
 from .attachments import PreparedAttachments, async_prepare_attachments
 from .const import CONF_AI_TASK_MODEL, CONF_MODEL, DEFAULT_MODEL, LOGGER
+from .schema import convert, vol
+from .tool_result import create_tool_result_content
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -126,11 +126,12 @@ class StructuredResultHolder:
                 )
 
         self.chat_log.async_add_assistant_content_without_tools(
-            conversation.ToolResultContent(
+            create_tool_result_content(
                 agent_id=self.agent_id,
                 tool_call_id=invocation.tool_call_id,
                 tool_name="submit_result",
-                tool_result=tool_result,
+                data=tool_result,
+                error=error_text is not None,
             )
         )
         return ToolResult(

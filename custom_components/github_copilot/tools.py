@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-import voluptuous as vol
 from copilot import Tool as CopilotTool
 from copilot import ToolInvocation, ToolResult
 from homeassistant.components import conversation
@@ -25,9 +24,10 @@ from homeassistant.helpers import intent, llm
 from homeassistant.helpers.json import json_dumps
 from homeassistant.util import dt as dt_util
 from sqlalchemy.exc import SQLAlchemyError
-from voluptuous_openapi import convert
 
-from .const import LOGGER
+from .const import DOMAIN, LOGGER
+from .schema import convert, vol
+from .tool_result import create_tool_result, create_tool_result_content
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -59,6 +59,7 @@ class GetHistoryTool(llm.Tool):
     """Return bounded Recorder summaries for exposed entities."""
 
     name = "GetHistory"
+    integration = DOMAIN
     description = (
         "Summarize historical Home Assistant states for exposed entities. "
         "Use for past values, trends, min/max/average, durations, or questions "
@@ -84,7 +85,7 @@ class GetHistoryTool(llm.Tool):
         hass: HomeAssistant,
         tool_input: llm.ToolInput,
         llm_context: llm.LLMContext,
-    ) -> dict[str, Any]:
+    ) -> llm.ToolResult | dict[str, Any]:
         """Query Recorder and return deterministic summaries."""
         arguments = self.parameters(tool_input.tool_args)
         entity_ids = _resolve_history_entity_ids(
@@ -93,18 +94,24 @@ class GetHistoryTool(llm.Tool):
             arguments,
         )
         if not entity_ids:
-            return {
-                "success": False,
-                "error": "No exposed entities matched the history filters.",
-            }
+            return create_tool_result(
+                {
+                    "success": False,
+                    "error": "No exposed entities matched the history filters.",
+                },
+                error=True,
+            )
         if len(entity_ids) > _MAX_HISTORY_ENTITIES:
-            return {
-                "success": False,
-                "error": (
-                    f"History matched {len(entity_ids)} entities. Narrow the "
-                    f"request to {_MAX_HISTORY_ENTITIES} or fewer."
-                ),
-            }
+            return create_tool_result(
+                {
+                    "success": False,
+                    "error": (
+                        f"History matched {len(entity_ids)} entities. Narrow the "
+                        f"request to {_MAX_HISTORY_ENTITIES} or fewer."
+                    ),
+                },
+                error=True,
+            )
 
         end_time = dt_util.utcnow()
         start_time = end_time - timedelta(hours=arguments["hours"])
@@ -135,15 +142,17 @@ class GetHistoryTool(llm.Tool):
             )
             for entity_id in entity_ids
         ]
-        return {
-            "success": True,
-            "period": {
-                "start": dt_util.as_local(start_time).isoformat(),
-                "end": dt_util.as_local(end_time).isoformat(),
-                "hours": arguments["hours"],
-            },
-            "entities": summaries,
-        }
+        return create_tool_result(
+            {
+                "success": True,
+                "period": {
+                    "start": dt_util.as_local(start_time).isoformat(),
+                    "end": dt_util.as_local(end_time).isoformat(),
+                    "hours": arguments["hours"],
+                },
+                "entities": summaries,
+            }
+        )
 
 
 def add_history_tool(chat_log: conversation.ChatLog) -> None:
@@ -470,17 +479,18 @@ class HomeAssistantToolDispatcher:
                     ]
             except TimeoutError:
                 chat_log.async_add_assistant_content_without_tools(
-                    conversation.ToolResultContent(
+                    create_tool_result_content(
                         agent_id=self._agent_id,
                         tool_call_id=invocation.tool_call_id,
                         tool_name=invocation.tool_name,
-                        tool_result={
+                        data={
                             "error": "ToolTimeout",
                             "error_text": (
                                 "The Home Assistant tool timed out; its final "
                                 "state may be unknown."
                             ),
                         },
+                        error=True,
                     )
                 )
                 return ToolResult(
@@ -498,8 +508,14 @@ class HomeAssistantToolDispatcher:
                     ),
                     result_type="failure",
                 )
-            result = results[0].tool_result
-            failed = "error" in result or result.get("success") is False
+            content = results[0]
+            if hasattr(content, "result"):
+                result = content.result.data
+                failed = content.result.error
+            else:
+                result = content.tool_result
+                failed = False
+            failed = failed or "error" in result or result.get("success") is False
             return ToolResult(
                 text_result_for_llm=json_dumps(result),
                 result_type="failure" if failed else "success",
@@ -586,9 +602,9 @@ class HomeAssistantToolDispatcher:
         return None
 
 
-async def _async_return(result: dict[str, Any]) -> dict[str, Any]:
+async def _async_return(result: dict[str, Any]) -> llm.ToolResult | dict[str, Any]:
     """Return a precomputed tool result."""
-    return result
+    return create_tool_result(result, error=True)
 
 
 def _resolve_target_states(

@@ -8,7 +8,6 @@ from typing import override
 from unittest.mock import AsyncMock, patch
 
 import pytest
-import voluptuous as vol
 from copilot import ToolInvocation
 from homeassistant.components import conversation
 from homeassistant.core import Context, State
@@ -16,6 +15,8 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import llm
 from homeassistant.util import dt as dt_util
 
+from custom_components.github_copilot.schema import vol
+from custom_components.github_copilot.tool_result import create_tool_result
 from custom_components.github_copilot.tools import (
     GetHistoryTool,
     HomeAssistantToolDispatcher,
@@ -29,6 +30,7 @@ class EchoTool(llm.Tool):
     """Return validated input."""
 
     name = "Echo"
+    integration = "github_copilot"
     description = "Echo a value."
     parameters = vol.Schema({vol.Required("value"): cv.string})
 
@@ -38,9 +40,11 @@ class EchoTool(llm.Tool):
         _hass,
         tool_input,
         _llm_context,
-    ) -> dict[str, object]:
+    ) -> llm.ToolResult | dict[str, object]:
         """Return the tool input."""
-        return {"success": True, "value": tool_input.tool_args["value"]}
+        return create_tool_result(
+            {"success": True, "value": tool_input.tool_args["value"]}
+        )
 
 
 def _api_instance(hass, tools: list[llm.Tool]) -> llm.APIInstance:
@@ -73,7 +77,7 @@ def _chat_log(hass, api_instance: llm.APIInstance) -> conversation.ChatLog:
 
 
 def test_prepare_tool_specs_converts_schema(hass) -> None:
-    """Home Assistant Voluptuous schemas should become SDK JSON schemas."""
+    """Native Home Assistant schemas should become SDK JSON schemas."""
     specs, fingerprint = prepare_tool_specs(_api_instance(hass, [EchoTool()]))
 
     assert len(specs) == 1
@@ -154,6 +158,8 @@ async def test_history_tool_summarizes_exposed_numeric_entity(hass) -> None:
             _api_instance(hass, []).llm_context,
         )
 
+    if hasattr(result, "data"):
+        result = result.data
     summary = result["entities"][0]
     assert result["success"] is True
     assert summary["numeric"]["minimum"] == 70
@@ -183,6 +189,9 @@ async def test_history_tool_rejects_unexposed_entity(hass) -> None:
             _api_instance(hass, []).llm_context,
         )
 
+    if hasattr(result, "data"):
+        assert result.error is True
+        result = result.data
     assert result == {
         "success": False,
         "error": "No exposed entities matched the history filters.",
@@ -209,10 +218,36 @@ async def test_dispatcher_executes_through_chat_log(hass) -> None:
     assert isinstance(chat_log.content[-2], conversation.AssistantContent)
     assert chat_log.content[-2].tool_calls[0].id == "call-1"
     assert isinstance(chat_log.content[-1], conversation.ToolResultContent)
-    assert chat_log.content[-1].tool_result == {
+    content = chat_log.content[-1]
+    data = content.result.data if hasattr(content, "result") else content.tool_result
+    assert data == {
         "success": True,
         "value": "hello",
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not hasattr(llm, "ToolResult"), reason="Requires typed HA results")
+async def test_dispatcher_preserves_native_error_flag(hass) -> None:
+    """A native error must fail even without an error key in its payload."""
+    tool = EchoTool()
+    tool.async_call = AsyncMock(
+        return_value=llm.ToolResult(data={"message": "Not completed"}, error=True)
+    )
+    chat_log = _chat_log(hass, _api_instance(hass, [tool]))
+    dispatcher = HomeAssistantToolDispatcher(max_calls=10)
+    dispatcher.bind(chat_log, "conversation.github_copilot", max_calls=10)
+
+    result = await dispatcher.async_invoke(
+        ToolInvocation(
+            tool_name="Echo",
+            tool_call_id="call-error",
+            arguments={"value": "hello"},
+        )
+    )
+
+    assert result.result_type == "failure"
+    assert "Not completed" in result.text_result_for_llm
 
 
 @pytest.mark.asyncio

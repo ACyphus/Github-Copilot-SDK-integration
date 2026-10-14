@@ -6,7 +6,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-import voluptuous as vol
 from copilot import ToolInvocation
 from homeassistant.components import ai_task, conversation
 from homeassistant.exceptions import HomeAssistantError
@@ -28,6 +27,7 @@ from custom_components.github_copilot.const import (
     CONF_AI_TASK_MODEL,
     CONF_MODEL,
 )
+from custom_components.github_copilot.schema import vol
 
 
 def _metrics(content: str = "") -> CopilotTurnMetrics:
